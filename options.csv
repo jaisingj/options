@@ -1,0 +1,7 @@
+﻿Company,Symbol,Option,Target,Premium,Expiry Date,Status,Profit/Loss,Roll,New Position
+Nvidia,NVDA,Sell Put,118,2.7,6/28/24,Expired,270,0,0
+Nvidia,NVDA,Sell Call,132,2.4,7/12/24,Expired,240,0,0
+Nvidia,NVDA,Sell Put,121,4.4,7/19/24,Open,440,0,0
+Apple,AAPL,Sell Call,222.5,1.9,7/19/24,Open,192,0,0
+Amazon,AMZN,Sell Call,210,2.35,7/26/24,Open,235,0,0
+Tesla,TSLA,Sell Call,245,6.57,7/26/24,Open,657,0,0
