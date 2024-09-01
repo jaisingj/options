@@ -1,289 +1,319 @@
-import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
+from datetime import datetime
+import streamlit as st
+import yfinance as yf
+from io import BytesIO, StringIO
 import sqlite3
-from datetime import datetime, timedelta
 
-# Set the app to wide mode
-st.set_page_config(layout="wide")
+# Function to load data
+def load_data(file):
+    file_extension = file.name.split('.')[-1]
 
-# Function to initialize connection to SQLite database
-def init_connection():
-    conn = sqlite3.connect('mydatabase.db')
-    return conn
+    if file_extension == 'csv':
+        lines = file.readlines()
+        lines = [line.decode('utf-8') for line in lines]
+        lines = [line for line in lines if not line.startswith("The data provided is for informational purposes only.")]
+        df = pd.read_csv(StringIO(''.join(lines)), parse_dates=['Activity Date', 'Settle Date'], on_bad_lines='skip')
+    elif file_extension == 'xlsx':
+        df = pd.read_excel(file, engine='openpyxl', parse_dates=['Activity Date', 'Settle Date'])
+    else:
+        st.error("Unsupported file format! Please upload a CSV or Excel file.")
+        return pd.DataFrame()
 
-# Function to create tables if they don't exist
-def create_tables():
-    conn = init_connection()
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS simulations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
-            stock TEXT,
-            premium REAL,
-            premium_100 REAL,
-            net_profit REAL
-        )
-    ''')
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS monthly_summary (
-            month TEXT PRIMARY KEY,
-            net_profit REAL
-        )
-    ''')
-    conn.commit()
+    return df
+
+def extract_expiry_date(description):
+    try:
+        date_str = description.split()[1]
+        return datetime.strptime(date_str, '%m/%d/%Y')
+    except Exception:
+        return None
+
+def extract_strike_price(description):
+    try:
+        price_str = description.split()[-1]
+        return float(price_str.replace('$', ''))
+    except Exception:
+        return None
+
+def clean_numeric_columns(df, columns):
+    for col in columns:
+        df[col] = df[col].replace({'\$': '', ',': ''}, regex=True)
+        df[col] = df[col].replace({'\(': '-', '\)': ''}, regex=True)
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    return df
+
+def get_last_close_price(stock):
+    try:
+        ticker = yf.Ticker(stock)
+        hist = ticker.history(period="1d")
+        last_close = hist['Close'].iloc[-1]
+        return last_close
+    except Exception as e:
+        st.warning(f"Could not retrieve closing price for {stock}: {e}")
+        return np.nan
+
+def process_data(df):
+    if 'Activity Date' not in df.columns:
+        st.error("The input data does not contain an 'Activity Date' column.")
+        return pd.DataFrame()
+
+    if 'Price' not in df.columns:
+        st.error("The input data does not contain a 'Price' column.")
+        return pd.DataFrame()
+
+    df['Trans Code'] = df['Trans Code'].str.strip().str.upper()
+
+    df = clean_numeric_columns(df, ['Amount', 'Price'])
+
+    # Rename 'Instrument' column to 'Stock' and 'Price' to 'Option Price'
+    df = df.rename(columns={'Instrument': 'Stock', 'Price': 'Option Price'})
+
+    trade_df = df[df['Stock'].notnull()].copy()
+    trade_df['Option Price'] = df['Option Price']
+    trade_df['Activity Date'] = pd.to_datetime(trade_df['Activity Date'], errors='coerce')
+
+    trade_df['Expiry Date'] = trade_df['Description'].apply(extract_expiry_date)
+    trade_df['Strike Price'] = trade_df['Description'].apply(extract_strike_price)
+
+    trade_df['STO Amount'] = trade_df.apply(lambda x: x['Amount'] if x['Trans Code'] == 'STO' else 0, axis=1)
+    trade_df['BTC Amount'] = trade_df.apply(lambda x: x['Amount'] if x['Trans Code'] == 'BTC' else 0, axis=1)
+    trade_df['STO Date'] = trade_df.apply(lambda x: x['Activity Date'] if x['Trans Code'] == 'STO' else pd.NaT, axis=1)
+    trade_df['BTC Date'] = trade_df.apply(lambda x: x['Activity Date'] if x['Trans Code'] == 'BTC' else pd.NaT, axis=1)
+
+    # Get the last close price for each stock
+    trade_df['Last Close Price'] = trade_df['Stock'].apply(get_last_close_price)
+
+    trade_df = trade_df.sort_values(by='Activity Date', ascending=False)  # Sort by most recent Activity Date
+
+    grouped_df = trade_df.groupby(['Stock', 'Strike Price', 'Expiry Date']).agg({
+        'STO Amount': 'sum',
+        'BTC Amount': 'sum',
+        'STO Date': 'max',
+        'BTC Date': 'max',
+        'Option Price': 'mean',
+        'Last Close Price': 'first'  # Assuming the close price is the same for all grouped entries
+    }).reset_index()
+
+    grouped_df['Expiry Date'] = pd.to_datetime(grouped_df['Expiry Date'], errors='coerce')
+
+    today = datetime.today()
+    grouped_df['Expired'] = (grouped_df['Expiry Date'] < today) & grouped_df['BTC Date'].isna()
+
+    grouped_df['Net Premium'] = grouped_df['STO Amount'] - grouped_df['BTC Amount'].abs()
+
+    grouped_df = grouped_df.sort_values(by='STO Date', ascending=False)  # Sort by most recent STO Date
+
+    grouped_df['Activity Date'] = grouped_df['STO Date'].dt.strftime('%Y-%m-%d')
+    grouped_df['Expiry Date'] = grouped_df['Expiry Date'].dt.strftime('%Y-%m-%d')
+    grouped_df['STO Date'] = grouped_df['STO Date'].dt.strftime('%Y-%m-%d')
+    grouped_df['BTC Date'] = grouped_df['BTC Date'].dt.strftime('%Y-%m-%d')
+
+    return grouped_df
+
+def summarize_data(df, tax_rate):
+    if 'Expiry Date' not in df.columns:
+        st.error("The data does not contain an 'Expiry Date' column.")
+        return pd.DataFrame()
+
+    df['Month'] = pd.to_datetime(df['Expiry Date'], errors='coerce').dt.to_period('M')
+
+    monthly_summary = df.groupby('Month')['Net Premium'].sum().reset_index()
+
+    monthly_summary['Net Premium (After Tax)'] = monthly_summary['Net Premium'] * (1 - tax_rate)
+
+    monthly_summary['Month'] = monthly_summary['Month'].dt.strftime("%b'%y")
+    monthly_summary['Net Premium'] = monthly_summary['Net Premium'].astype(int)
+    monthly_summary['Net Premium (After Tax)'] = monthly_summary['Net Premium (After Tax)'].astype(int)
+
+    total_premium = monthly_summary['Net Premium'].sum()
+    total_premium_after_tax = monthly_summary['Net Premium (After Tax)'].sum()
+
+    total_row = pd.DataFrame({
+        'Month': ['Total'],
+        'Net Premium': [total_premium],
+        'Net Premium (After Tax)': [total_premium_after_tax]
+    })
+
+    monthly_summary = pd.concat([monthly_summary, total_row], ignore_index=True)
+
+    return monthly_summary
+
+def plot_monthly_premium(monthly_summary):
+    plt.style.use('ggplot')
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    bar_width = 0.35
+    monthly_data = monthly_summary[monthly_summary['Month'] != 'Total']
+    index = monthly_data.index
+
+    bars1 = ax.bar(index - bar_width/2, monthly_data['Net Premium'], bar_width, label='Net Premium', color='steelblue', edgecolor='black', linewidth=0.6)
+    bars2 = ax.bar(index + bar_width/2, monthly_data['Net Premium (After Tax)'], bar_width, label='Net Premium (After Tax)', color='green', edgecolor='black', linewidth=0.6)
+    
+    for rect in bars1:
+        height = rect.get_height()
+        ax.annotate(f'{height:,.0f}',
+                    xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 5),
+                    textcoords="offset points",
+                    ha='center', va='bottom', color='black', fontsize=9)
+    
+    for rect in bars2:
+        height = rect.get_height()
+        ax.annotate(f'{height:,.0f}',
+                    xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 5),
+                    textcoords="offset points",
+                    ha='center', va='bottom', color='black', fontsize=9)
+
+    ax.set_title("Net Premium and Net Premium After Tax Per Month", fontsize=14, fontweight='bold', color='black')
+    ax.set_xlabel("Month", fontsize=12, fontweight='bold', color='black')
+    ax.set_ylabel("Amount ($)", fontsize=10, fontweight='bold', color='black')
+
+    ax.tick_params(axis='both', which='both', labelsize=10, colors='black')
+    ax.set_xticks(index)
+    ax.set_xticklabels(monthly_data['Month'])
+    ax.set_ylim(0, max(monthly_data['Net Premium'].max(), monthly_data['Net Premium (After Tax)'].max()) * 1.2)
+
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+    ax.set_axisbelow(True)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+
+    ax.xaxis.set_major_locator(MultipleLocator(1))
+    ax.yaxis.set_major_locator(MultipleLocator(500))
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+    ax.axhline(0, color='black', linewidth=0.8)
+    
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.22), ncol=2)
+
+    plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.3)
+    
+    st.pyplot(fig)
+
+def highlight_total_row(s):
+    return ['background-color: #E4E8F5' if s['Month'] == 'Total' else '' for _ in s]
+
+# Function to save to database
+def save_to_database(df):
+    conn = sqlite3.connect('trades.db')
+    df.to_sql('monthly_summary', conn, if_exists='replace', index=False)
     conn.close()
 
-create_tables()
-
-# Function to generate the list of Fridays from January 2024 until Dec 2025
-def generate_fridays():
-    start_date = datetime(2024, 1, 1)
-    while start_date.weekday() != 4:  # 4 indicates Friday
-        start_date += timedelta(days=1)
-    end_date = datetime(2025, 12, 31)
-    fridays = []
-    while start_date <= end_date:
-        fridays.append(start_date)
-        start_date += timedelta(days=7)
-    return fridays
-
-# Generate the Fridays
-fridays = generate_fridays()
-fridays_str = [date.strftime('%Y-%m-%d') for date in fridays]
-
-# Create a mapping of months to their respective dates
-fridays_by_month = {}
-for date in fridays:
-    month_year = date.strftime('%B %Y')
-    if month_year not in fridays_by_month:
-        fridays_by_month[month_year] = []
-    fridays_by_month[month_year].append(date.strftime('%Y-%m-%d'))
-
-# Initialize session state
-if 'selected_rows' not in st.session_state:
-    st.session_state.selected_rows = []
-
-if 'total_premium' not in st.session_state:
-    st.session_state.total_premium = 0.0
-
-if 'net_profit' not in st.session_state:
-    st.session_state.net_profit = 0.0
-
-if 'tax_rate' not in st.session_state:
-    st.session_state.tax_rate = 0.0
-
-if 'summary_df' not in st.session_state:
-    st.session_state.summary_df = pd.DataFrame()
-
-if 'edit_mode' not in st.session_state:
-    st.session_state.edit_mode = False
-
-# Default values for stock premiums
-default_stock_premiums = {stock: 0.0 for stock in ['Apple', 'Nvidia', 'Netflix', 'Tesla', 'Amazon', 'Citi']}
-
-# Clear input entries
-if st.button("Clear Entries"):
-    st.session_state.stock_premiums = default_stock_premiums.copy()
-
-# Initialize stock premiums if not in session state
-if 'stock_premiums' not in st.session_state:
-    st.session_state.stock_premiums = default_stock_premiums.copy()
-
-# Sidebar for month selection
-current_month_year = datetime.now().strftime('%B %Y')
-months = list(fridays_by_month.keys())
-selected_month = st.sidebar.selectbox("Select Month", months, index=months.index(current_month_year))
-
-# Sidebar for date selection within the selected month
-if selected_month:
-    selected_date = st.sidebar.selectbox("Select Trading Date", fridays_by_month[selected_month])
-
-# Display the title with reduced font size
-st.markdown("<h1 style='font-size:24px;'>Stock Option Simulator</h1>", unsafe_allow_html=True)
-
-# Input for stock premiums
-st.write(f"### Enter Premium Values for {selected_date}")
-cols = st.columns(len(st.session_state.stock_premiums))
-for i, stock in enumerate(st.session_state.stock_premiums.keys()):
-    st.session_state.stock_premiums[stock] = cols[i].number_input(
-        f"{stock} Premium:",
-        min_value=0.0,
-        step=0.01,
-        value=st.session_state.stock_premiums[stock],
-        key=f"{stock}_premium"
-    )
-
-# Function to insert data into the database
-def insert_data(date, stock, premium, premium_100, net_profit):
-    conn = init_connection()
-    conn.execute('''
-        INSERT INTO simulations (date, stock, premium, premium_100, net_profit)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (date, stock, premium, premium_100, net_profit))
-    conn.commit()
-    conn.close()
-
-# Function to update data in the database
-def update_data(date, stock, premium, premium_100, net_profit):
-    conn = init_connection()
-    query = '''
-        UPDATE simulations
-        SET premium = ?, premium_100 = ?, net_profit = ?
-        WHERE date = ? AND stock = ?
-    '''
-    conn.execute(query, (premium, premium_100, net_profit, date, stock))
-    conn.commit()
-    conn.close()
-
-# Function to clear all tables
-def clear_tables():
-    conn = init_connection()
-    conn.execute('DROP TABLE IF EXISTS simulations')
-    conn.commit()
-    conn.close()
-    create_tables()
-
-# Function to read data from the database
-def get_data():
-    conn = init_connection()
-    df = pd.read_sql('SELECT * FROM simulations', conn)
+# Function to load from database
+def load_from_database():
+    conn = sqlite3.connect('trades.db')
+    try:
+        df = pd.read_sql('SELECT * FROM monthly_summary', conn)
+    except Exception:
+        st.error("No data available in the database.")
+        df = pd.DataFrame()
     conn.close()
     return df
 
-# Function to insert monthly summary into the database
-def insert_monthly_summary(month, net_profit):
-    conn = init_connection()
-    conn.execute('''
-        INSERT OR REPLACE INTO monthly_summary (month, net_profit)
-        VALUES (?, ?)
-    ''', (month, net_profit))
-    conn.commit()
-    conn.close()
+# Function to create an Excel file
+def create_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Summary')
+        
+        # Access the XlsxWriter workbook and worksheet objects
+        workbook  = writer.book
+        worksheet = writer.sheets['Summary']
+        
+        # Create a chart object
+        chart = workbook.add_chart({'type': 'column'})
+        
+        # Configure the series of the chart from the dataframe data
+        chart.add_series({
+            'name':       'Net Premium',
+            'categories': ['Summary', 1, 0, len(df) - 2, 0],  # Skipping 'Total' row for chart
+            'values':     ['Summary', 1, 1, len(df) - 2, 1],
+        })
+        
+        chart.add_series({
+            'name':       'Net Premium (After Tax)',
+            'categories': ['Summary', 1, 0, len(df) - 2, 0],  # Skipping 'Total' row for chart
+            'values':     ['Summary', 1, 2, len(df) - 2, 2],
+        })
+        
+        # Add chart title and labels
+        chart.set_title({'name': 'Net Premium and Net Premium After Tax Per Month'})
+        chart.set_x_axis({'name': 'Month'})
+        chart.set_y_axis({'name': 'Amount ($)'})
+        
+        # Insert the chart into the worksheet
+        worksheet.insert_chart('E2', chart)  # Adjust position as needed
+        
+    processed_data = output.getvalue()
+    return processed_data
 
-# Function to load monthly summary from the database
-def load_monthly_summary():
-    conn = init_connection()
-    df = pd.read_sql('SELECT * FROM monthly_summary', conn)
-    conn.close()
-    return df
 
-# Buttons to add entry and save to database
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Add Entry"):
-        for stock, premium in st.session_state.stock_premiums.items():
-            if premium > 0:  # Only add rows with non-zero premiums
-                premium_100 = premium * 100
-                net_profit = premium_100 * (1 - st.session_state.tax_rate / 100)
-                st.session_state.selected_rows.append((selected_date, stock, premium, premium_100, net_profit))
+def main():
+    st.title("Options Trades Tracker")
 
-with col2:
-    if st.button("Save to Database"):
-        for entry in st.session_state.selected_rows:
-            insert_data(*entry)
-        st.session_state.selected_rows = []
-        st.success("Entries saved to database")
+    uploaded_file = st.file_uploader("Upload your Excel or CSV file", type=["xlsx", "csv"])
 
-if st.session_state.edit_mode:
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Update Entry"):
-            for stock, premium in st.session_state.stock_premiums.items():
-                premium_100 = premium * 100
-                net_profit = premium_100 * (1 - st.session_state.tax_rate / 100)
-                update_data(selected_date, stock, premium, premium_100, net_profit)
-            st.session_state.edit_mode = False
-            st.success("Entries updated in the database")
+    if uploaded_file is not None:
+        # If a file is uploaded, hide the Load from Database button
+        data = load_data(uploaded_file)
+        detailed_view = process_data(data)
 
-# Display current entries
-st.write("### Current Entries")
-if st.session_state.selected_rows:
-    entries_df = pd.DataFrame(st.session_state.selected_rows, columns=["Date", "Stock", "Premium", "Premium x 100", "Net Profit"])
-    st.write(entries_df)
-else:
-    st.write("No entries added yet.")
-
-# Buttons to load data from database and clear database
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Load Data from Database"):
-        db_data = get_data()
-        # Ensure net_profit is correctly calculated based on premium_100 and tax_rate
-        db_data['net_profit'] = db_data['premium_100'] * (1 - st.session_state.tax_rate / 100)
-        st.write(db_data)
-
-with col2:
-    if st.button("Clear Database"):
-        clear_tables()
-        st.success("Database cleared")
-
-# Sum premiums and calculate net profit
-st.write("### Calculate Premiums and Net Profit")
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Sum Premiums"):
-        if st.session_state.selected_rows:
-            entries_df = pd.DataFrame(st.session_state.selected_rows, columns=["Date", "Stock", "Premium", "Premium x 100", "Net Profit"])
-            st.session_state.total_premium = entries_df["Premium x 100"].sum()
-            st.write(f"Total Premium: {st.session_state.total_premium:.2f}")
+        if 'Activity Date' in detailed_view.columns:
+            st.subheader("Options Trades History")
+            styled_detailed_view = detailed_view[['Activity Date', 'Stock', 'Last Close Price', 'Expiry Date', 'STO Date', 'BTC Date',  'Option Price', 'Strike Price',
+                                                  'STO Amount', 'BTC Amount', 'Net Premium',  'Expired']].style.format("{:,.2f}", subset=['Option Price', 'Strike Price', 'STO Amount', 'BTC Amount', 'Net Premium', 'Last Close Price'])
+            st.dataframe(styled_detailed_view, hide_index=True)  # Hide row numbers
         else:
-            st.write("No entries to sum.")
+            st.error("The 'Activity Date' column is missing from the processed data.")
 
-with col2:
-    tax_rate = st.number_input("Enter Tax Rate (%)", min_value=0.0, max_value=100.0, step=0.1, key='tax_rate_input')
-    st.session_state.tax_rate = tax_rate
+        tax_rate = st.select_slider(
+            "Select Tax Rate to Deduct from Net Premium",
+            options=[0.10, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37],
+            format_func=lambda x: f"{int(x*100)}%"
+        )
 
-if st.session_state.total_premium > 0:
-    st.session_state.net_profit = st.session_state.total_premium * (1 - st.session_state.tax_rate / 100)
-    st.write(f"Net Profit after {st.session_state.tax_rate}% tax: {st.session_state.net_profit:.2f}")
+        monthly_summary = summarize_data(detailed_view, tax_rate)
 
-# Update net profit for all selected rows with the new tax rate
-for i in range(len(st.session_state.selected_rows)):
-    date, stock, premium, premium_100, _ = st.session_state.selected_rows[i]
-    net_profit = premium_100 * (1 - st.session_state.tax_rate / 100)
-    st.session_state.selected_rows[i] = (date, stock, premium, premium_100, net_profit)
+        if not monthly_summary.empty:
+            st.subheader("Monthly Net Premium Summary")
+            styled_summary = monthly_summary.style.apply(highlight_total_row, axis=1).format("{:,.0f}", subset=['Net Premium', 'Net Premium (After Tax)'])
+            st.dataframe(styled_summary, hide_index=True)  # Hide row numbers
+            plot_monthly_premium(monthly_summary)
 
-# Generate monthly summary
-st.write("### Monthly Net Profit Summary")
-if st.session_state.selected_rows:
-    entries_df = pd.DataFrame(st.session_state.selected_rows, columns=["Date", "Stock", "Premium", "Premium x 100", "Net Profit"])
-    entries_df['Month'] = pd.to_datetime(entries_df['Date']).dt.to_period('M')
-    monthly_summary = entries_df.groupby('Month')['Net Profit'].sum().reset_index()
-    monthly_summary['Month'] = monthly_summary['Month'].astype(str)
-    monthly_summary.columns = ['Month', 'Net Profit']
-    st.session_state.summary_df = monthly_summary
+            # Place buttons next to each other
+            col1, col2 = st.columns(2)
 
-if not st.session_state.summary_df.empty:
-    st.write(st.session_state.summary_df)
-else:
-    st.write("No summary data available.")
+            with col1:
+                excel_data = create_excel(monthly_summary)
+                today = datetime.today().strftime('%Y-%m-%d')
+                st.download_button(
+                    label="Download Summary",
+                    data=excel_data,
+                    file_name=f'trades_{today}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
 
-# Function to insert monthly summary into the database
-def insert_monthly_summary(month, net_profit):
-    conn = init_connection()
-    conn.execute('''
-        INSERT OR REPLACE INTO monthly_summary (month, net_profit)
-        VALUES (?, ?)
-    ''', (month, net_profit))
-    conn.commit()
-    conn.close()
+            with col2:
+                if st.button("Save Monthly Summary"):
+                    save_to_database(monthly_summary)
+                    st.success("Monthly summary saved to the database!")
 
-# Function to load monthly summary from the database
-def load_monthly_summary():
-    conn = init_connection()
-    df = pd.read_sql('SELECT * FROM monthly_summary', conn)
-    conn.close()
-    return df
 
-# Buttons to save monthly summary to database and load monthly summary from database
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Save Monthly Summary to Database"):
-        for index, row in st.session_state.summary_df.iterrows():
-            insert_monthly_summary(row['Month'], row['Net Profit'])
-        st.success("Monthly summary saved to database")
+    else:
+        # If no file is uploaded, show the Load from Database button
+        if st.button("Load from Database"):
+            df = load_from_database()
+            if not df.empty:
+                st.write("Data loaded from the database.")
+                st.write(df)
+                plot_monthly_premium(df)
+            else:
+                st.error("No data available in the database.")
 
-with col2:
-    if st.button("Load Monthly Summary from Database"):
-        monthly_summary_df = load_monthly_summary()
-        st.write(monthly_summary_df)
+if __name__ == "__main__":
+    main()
