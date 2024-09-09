@@ -78,6 +78,12 @@ def process_data(df):
     trade_df['Expiry Date'] = trade_df['Description'].apply(extract_expiry_date)
     trade_df['Strike Price'] = trade_df['Description'].apply(extract_strike_price)
 
+    # Determine if the option is a Call or Put
+    trade_df['Option Type'] = trade_df['Description'].apply(lambda x: 'Call' if 'Call' in x else 'Put')
+
+    # Calculate the collateral based on the Option Type
+    trade_df['Collateral'] = trade_df.apply(lambda x: 100 if x['Option Type'] == 'Call' else x['Strike Price'] * 100, axis=1)
+
     trade_df['STO Amount'] = trade_df.apply(lambda x: x['Amount'] if x['Trans Code'] == 'STO' else 0, axis=1)
     trade_df['BTC Amount'] = trade_df.apply(lambda x: x['Amount'] if x['Trans Code'] == 'BTC' else 0, axis=1)
     trade_df['STO Date'] = trade_df.apply(lambda x: x['Activity Date'] if x['Trans Code'] == 'STO' else pd.NaT, axis=1)
@@ -94,7 +100,9 @@ def process_data(df):
         'STO Date': 'max',
         'BTC Date': 'max',
         'Option Price': 'mean',
-        'Last Close Price': 'first'  # Assuming the close price is the same for all grouped entries
+        'Last Close Price': 'first',  # Assuming the close price is the same for all grouped entries
+        'Option Type': 'first',
+        'Collateral': 'first'
     }).reset_index()
 
     grouped_df['Expiry Date'] = pd.to_datetime(grouped_df['Expiry Date'], errors='coerce')
@@ -265,8 +273,18 @@ def main():
 
         if 'Activity Date' in detailed_view.columns:
             st.subheader("Options Trades History")
-            styled_detailed_view = detailed_view[['Activity Date', 'Stock', 'Last Close Price', 'Expiry Date', 'STO Date', 'BTC Date',  'Option Price', 'Strike Price',
-                                                  'STO Amount', 'BTC Amount', 'Net Premium',  'Expired']].style.format("{:,.2f}", subset=['Option Price', 'Strike Price', 'STO Amount', 'BTC Amount', 'Net Premium', 'Last Close Price'])
+            styled_detailed_view = detailed_view[['Activity Date', 'Stock', 'Last Close Price', 'Expiry Date','Option Type', 'Collateral', 'STO Date', 'BTC Date', 'Option Price', 'Strike Price',
+                                                   'STO Amount', 'BTC Amount', 'Net Premium', 'Expired']].style.format(
+                {
+                    'Option Price': "{:,.2f}",
+                    'Strike Price': "{:,.2f}",
+                    'STO Amount': "{:,.2f}",
+                    'BTC Amount': "{:,.2f}",
+                    'Net Premium': "{:,.2f}",
+                    'Last Close Price': "{:,.2f}",
+                    'Collateral': "{:,.0f}"  # Keep commas and remove decimal points
+                }
+            )
             st.dataframe(styled_detailed_view, hide_index=True)  # Hide row numbers
         else:
             st.error("The 'Activity Date' column is missing from the processed data.")
@@ -302,7 +320,6 @@ def main():
                 if st.button("Save Monthly Summary"):
                     save_to_database(monthly_summary)
                     st.success("Monthly summary saved to the database!")
-
 
     else:
         # If no file is uploaded, show the Load from Database button
