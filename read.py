@@ -324,7 +324,7 @@ if uploaded_file is not None:
 
 
     st.download_button(
-        label="Download Transaction Details as CSV",
+        label="Download Transaction CSV",
         data=final_output.to_csv(index=False).encode("utf-8"),
         file_name="transaction_details.csv",
         mime="text/csv",
@@ -396,14 +396,14 @@ if uploaded_file is not None:
     col1, col2, col3 = st.columns([0.4, 0.5, 0.1])
 
     with col1:
-        st.subheader("Net Premium Monthly Summary")
+        st.subheader("Monthly Summary")
         st.write(styled_monthly_summary.to_html(), unsafe_allow_html=True)
 
 
         # Convert monthly_summary_with_total DataFrame to CSV
         summary_csv = monthly_summary_with_total.to_csv(index=False)
         st.download_button(
-            label="Download Summary Table as CSV",
+            label="Download SummaryCSV",
             data=summary_csv,
             file_name="monthly_summary.csv",
             mime="text/csv"
