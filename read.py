@@ -222,26 +222,36 @@ if uploaded_file is not None:
     # Combine all transaction types into a single DataFrame
     final_output = pd.concat([rolled_data, non_roll_df, standalone_sto_data], ignore_index=True)
 
-    # Add a 'Status' column: Rolled if 'STO_Date' and 'BTC_Date' are the same,
-    # Otherwise, check if the 'Original DTE' is before today's date for "Expired/Closed" status.
-    # Ensure that Original DTE is converted to datetime.date where possible
+    # Ensure proper date conversion and handle missing values for 'New DTE' and 'BTC_Date'
     final_output['Original DTE'] = pd.to_datetime(final_output['Original DTE'], errors='coerce').dt.date
     final_output['New DTE'] = pd.to_datetime(final_output['New DTE'], errors='coerce').dt.date
+    final_output['New DTE'] = final_output['New DTE'].fillna('')  # Replace missing values with blank strings
+    final_output['BTC_Date'] = pd.to_datetime(final_output['BTC_Date'], errors='coerce').dt.date
+    final_output['BTC_Date'] = final_output['BTC_Date'].fillna('')  # Replace missing values with blank strings
 
     # Add a 'Status' column with all conditions
     final_output['Status'] = final_output.apply(
         lambda row: 'Rolled' if row['STO_Date'] == row['BTC_Date'] else
-                    ('Closed' if pd.notnull(row['BTC_Date']) and row['Original DTE'] == row['New DTE'] else
-                    ('Expired' if pd.isnull(row['BTC_Date']) and pd.notnull(row['Original DTE']) 
-                      and row['Original DTE'] < datetime.now().date() else
-                    ('Open' if pd.notnull(row['Original DTE']) and row['Original DTE'] > datetime.now().date() else ''))),
+                    ('Closed' if row['BTC_Date'] and row['Original DTE'] == row['New DTE'] else
+                    ('Expired' if row['BTC_Date'] and row['New DTE'] == '' and row['Original DTE'] and 
+                      row['Original DTE'] < datetime.now().date() else
+                    ('Expired' if not row['BTC_Date'] and row['Original DTE'] and 
+                      row['Original DTE'] < datetime.now().date() else
+                    ('Open' if not row['BTC_Date'] and row['New DTE'] == '' else '')))),
         axis=1
     )
 
-    # Set Net Premium to AMT_STO if the status is Expired
-    final_output.loc[final_output['Status'].isin(['Expired', 'Open']), 'Net Premium'] = final_output['AMT_STO']
+    # Adjust 'Net Premium' based on the status
+    final_output['Net Premium'] = final_output.apply(
+        lambda row: row['AMT_STO'] if row['Status'] == 'Open' else
+                    (row['AMT_STO'] + row['AMT_BTC'] if row['Status'] in ['Rolled', 'Expired'] else row['Net Premium']),
+        axis=1
+    )
 
-    # Sort final_output by 'Activity Date'
+    # Ensure no missing values are carried forward in 'Net Premium'
+    final_output['Net Premium'] = final_output['Net Premium'].fillna(0)
+            # Sort final_output by 'Activity Date'
+
     final_output = final_output.sort_values(by='Activity Date', ascending=False)
 
     # Convert specified columns to numeric values, handling non-numeric entries
