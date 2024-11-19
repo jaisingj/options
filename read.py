@@ -325,6 +325,7 @@ if uploaded_file is not None:
             font-weight: bold !important;
             box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2); /* Shadow for depth */
             transition: background-color 0.3s ease; /* Smooth transition */
+            margin-top: 10px !important; /* Adds space above the button */
         }
         .stDownloadButton > button:hover {
             background-color: #388E3C !important; /* Darker green on hover */
