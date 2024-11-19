@@ -449,7 +449,7 @@ if uploaded_file is not None:
             alpha=0.7
         )
 
-        ax.set_title("Monthly Net Premium", fontsize=16, fontweight='bold')
+        #ax.set_title("Monthly Net Premium", fontsize=16, fontweight='bold')
         ax.set_xlabel("Month", fontsize=14, fontweight='bold')
         ax.set_ylabel("Net Premium ($)", fontsize=12, fontweight='bold')
     
