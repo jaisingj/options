@@ -84,15 +84,52 @@ def tag_transactions(merged_data):
     return merged_data
 
 # Display header images and title
-col1, col2, col3, col4 = st.columns([0.5, 0.3, 0.5, 0.2])
+col1, col2, col3, col4 = st.columns([0.6, 0.5, 0.5, 0.5])
+
+with col1:
+    image1 = Image.open('bck1.jpg')
+    st.markdown(
+        f"""
+        <div style="opacity: 0.2; text-align: center; margin-top: -110px;">
+            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:105%; display:block; margin:auto;'>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 with col2:
     image1 = Image.open('opin.jpeg')
     st.markdown(
-        f"<img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:150%; display:block; margin:auto; margin-top: -80px; margin-bottom: 10px;'>",
+        f"""
+        <div style="text-align: center; margin-top: -100px;">
+            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:120%; display:block; margin-auto:'>
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
+with col3:
+    image1 = Image.open('bck1.jpg')
+    st.markdown(
+        f"""
+        <div style="opacity: 0.3; text-align: center; margin-top: -104px;">
+            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:105%; display:block; margin:auto;'>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+with col4:
+    image1 = Image.open('bck1.jpg')
+    st.markdown(
+        f"""
+        <div style="opacity: 0.2; text-align: center; margin-top: -106px;">
+            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:104%; display:block; margin:auto;'>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # File Upload
 uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=["csv", "xlsx"])
@@ -113,7 +150,7 @@ if uploaded_file:
     else:
         # For Excel files, directly read the data
         data = pd.read_excel(uploaded_file)
-    
+
 
     # Debug: Ensure data is loaded
     if data is None or data.empty:
@@ -214,42 +251,64 @@ if uploaded_file:
         ignore_index=True
     )
 
-    # Styled Monthly Summary Table
-styled_monthly_summary = monthly_summary.style.format({
-    "Net Premium": "${:,.2f}",
-    "Net After Tax": "${:,.2f}"
-}).set_properties(**{
-    'font-size': '14px',
-    'text-align': 'center'
-}).set_table_styles([
-    {
-        'selector': 'thead th',
-        'props': [
-            ('background-color', '#0A57C1'),
-            ('color', 'black'),
-            ('font-weight', 'bold'),
-            ('text-align', 'center'),
-            ('border', '1px solid #CCCCCC'),
-            ('padding', '10px')
-        ]
-    },
-    {
-        'selector': 'tbody td',
-        'props': [
-            ('padding', '10px'),
-            ('border', '1px solid #CCCCCC')
-        ]
-    },
-    {
-        'selector': 'table',
-        'props': [
-            ('width', '100%'),
-            ('margin', '0 auto'),
-            ('border-collapse', 'collapse')
-        ]
-    }
-])
+# Guard Clause: Ensure a file is uploaded before proceeding
+if not uploaded_file:
+    #st.warning("Please upload a valid file to proceed.")
+    st.stop()
 
+# File Processing
+if uploaded_file.name.endswith('.csv'):
+    raw_text = uploaded_file.getvalue().decode("utf-8")
+    cleaned_text = "\n".join([
+        line for line in raw_text.splitlines()
+        if not line.startswith("The data provided is for informational purposes only")
+    ])
+    data = pd.read_csv(io.StringIO(cleaned_text))
+else:
+    data = pd.read_excel(uploaded_file)
+
+# Stop if data is empty
+if data.empty:
+    st.error("Uploaded file is empty or invalid.")
+    st.stop()
+
+# Ensure file processing is complete before running this block
+if 'monthly_summary' in locals():
+    # Styled Monthly Summary Table
+    styled_monthly_summary = monthly_summary.style.format({
+        "Net Premium": "${:,.2f}",
+        "Net After Tax": "${:,.2f}"
+    }).set_properties(**{
+        'font-size': '14px',
+        'text-align': 'center'
+    }).set_table_styles([
+        {
+            'selector': 'thead th',
+            'props': [
+                ('background-color', '#0A57C1'),
+                ('color', 'black'),
+                ('font-weight', 'bold'),
+                ('text-align', 'center'),
+                ('border', '1px solid #CCCCCC'),
+                ('padding', '10px')
+            ]
+        },
+        {
+            'selector': 'tbody td',
+            'props': [
+                ('padding', '10px'),
+                ('border', '1px solid #CCCCCC')
+            ]
+        },
+        {
+            'selector': 'table',
+            'props': [
+                ('width', '100%'),
+                ('margin', '0 auto'),
+                ('border-collapse', 'collapse')
+            ]
+        }
+    ])
 # Tax rate selection and "Net After Tax" calculation
 col1, col2, col3 = st.columns([0.2, 0.4, 0.2])
 with col2:
