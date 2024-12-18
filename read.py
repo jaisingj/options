@@ -125,7 +125,7 @@ with col4:
     st.markdown(
         f"""
         <div style="opacity: 0.2; text-align: center; margin-top: -106px;">
-            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:104%; display:block; margin:auto;'>
+            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:105%; display:block; margin:auto;'>
         </div>
         """,
         unsafe_allow_html=True
