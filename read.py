@@ -582,8 +582,8 @@ with pie_col2:
             textprops={'color': 'black', 'fontsize': 4}  # Instrument names in black
         )
 
-        plt.setp(autotexts, color='white', size=6)
-        plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=8)
+        plt.setp(autotexts, color='white', size=4)
+        plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=5)
         plt.setp(autotexts, size=4)
         st.pyplot(fig2)
     else:
