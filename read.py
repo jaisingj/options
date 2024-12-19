@@ -170,7 +170,8 @@ if uploaded_file:
         "your specific tax situation. Reminder: This data does not include Robinhood Crypto or Robinhood Spending activity."
     )
     try:
-        data = data[~data.apply(lambda row: row.astype(str).str.contains(unwanted_text, regex=False).any(), axis=1)]
+        # Ensure the unwanted text check handles all rows in the DataFrame
+        data = data[~data.astype(str).applymap(lambda x: unwanted_text in x).any(axis=1)]
     except Exception as e:
         st.warning(f"Could not clean unwanted text: {e}")
 
