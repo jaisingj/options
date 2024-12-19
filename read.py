@@ -137,16 +137,11 @@ uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=
 if uploaded_file:
     if uploaded_file.name.endswith('.csv'):
         try:
-            # Attempt to read the CSV file with flexible handling
+            # Attempt to read the CSV file
             data = pd.read_csv(uploaded_file, on_bad_lines="skip", encoding="utf-8")
-        except pd.errors.ParserError:
-            # Retry reading CSV with alternative settings (e.g., different separator)
-            st.warning("Encountered issues with the CSV file. Attempting alternative parsing...")
-            try:
-                data = pd.read_csv(uploaded_file, on_bad_lines="skip", sep=";", encoding="utf-8")
-            except Exception as e:
-                st.error(f"Failed to read the CSV file: {e}")
-                st.stop()
+        except pd.errors.ParserError as e:
+            st.error(f"Parser error occurred while reading the CSV file: {e}")
+            st.stop()
         except Exception as e:
             st.error(f"Unexpected error reading the CSV file: {e}")
             st.stop()
@@ -174,6 +169,10 @@ if uploaded_file:
         data = data[~data.astype(str).applymap(lambda x: unwanted_text in x).any(axis=1)]
     except Exception as e:
         st.warning(f"Could not clean unwanted text: {e}")
+
+    # Debug output for review
+    st.write("File uploaded and processed successfully!")
+    #st.dataframe(data)
 
     # Preprocess Data
     try:
