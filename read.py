@@ -552,7 +552,7 @@ with pie_col1:
         )
 
         # Label formatting
-        plt.setp(autotexts, color='white', size=6)
+        plt.setp(autotexts, color='white', size=4)
         plt.title(f"Open Positions ({selected_month})", fontsize=8)
         st.pyplot(fig1)
     else:
