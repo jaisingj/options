@@ -86,46 +86,12 @@ def tag_transactions(merged_data):
 # Display header images and title
 col1, col2, col3, col4 = st.columns([0.6, 0.5, 0.5, 0.5])
 
-with col1:
-    image1 = Image.open('bck1.jpg')
-    st.markdown(
-        f"""
-        <div style="opacity: 0.2; text-align: center; margin-top: -110px;">
-            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:105%; display:block; margin:auto;'>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
 with col2:
     image1 = Image.open('opin.jpeg')
     st.markdown(
         f"""
         <div style="text-align: center; margin-top: -100px;">
-            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:120%; display:block; margin-auto:'>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-with col3:
-    image1 = Image.open('bck1.jpg')
-    st.markdown(
-        f"""
-        <div style="opacity: 0.3; text-align: center; margin-top: -104px;">
-            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:105%; display:block; margin:auto;'>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-with col4:
-    image1 = Image.open('bck1.jpg')
-    st.markdown(
-        f"""
-        <div style="opacity: 0.2; text-align: center; margin-top: -106px;">
-            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:105%; display:block; margin:auto;'>
+            <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:80%; display:block; margin-auto:'>
         </div>
         """,
         unsafe_allow_html=True
