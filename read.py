@@ -145,19 +145,24 @@ if uploaded_file:
             if not line.startswith("The data provided is for informational purposes only")
         ])
         
-        # Convert cleaned text to DataFrame
-        data = pd.read_csv(io.StringIO(cleaned_text))
+        # Convert cleaned text to DataFrame, skipping problematic lines
+        data = pd.read_csv(io.StringIO(cleaned_text), on_bad_lines="skip")
     else:
         # For Excel files, directly read the data
         data = pd.read_excel(uploaded_file)
 
-
     # Debug: Ensure data is loaded
     if data is None or data.empty:
         st.error("Uploaded file is empty or could not be read. Please upload a valid file.")
-    #else:
-        #st.write("### Raw Data")
-        #st.dataframe(data)
+        st.stop()
+
+    # Remove any unwanted header or footer rows containing specific text
+    unwanted_text = (
+        "The data provided is for informational purposes only. Please consult a professional tax service or "
+        "personal tax advisor if you need instructions on how to calculate cost basis or questions regarding "
+        "your specific tax situation. Reminder: This data does not include Robinhood Crypto or Robinhood Spending activity."
+    )
+    data = data[~data.apply(lambda row: row.astype(str).str.contains(unwanted_text, regex=False).any(), axis=1)]
 
     # Preprocess Data
     data['Amount'] = data['Amount'].apply(parse_amount)
@@ -196,7 +201,6 @@ if uploaded_file:
         'Amount': 'sum',
         'Activity Date': 'max'  # Latest BTC date
     }).reset_index().rename(columns={'Amount': 'BTC Amount', 'Activity Date': 'BTC Date'})
-
    
     # Merge STO and BTC Transactions
     merged_data = pd.merge(
