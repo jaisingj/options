@@ -137,10 +137,13 @@ uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=
 if uploaded_file:
     if uploaded_file.name.endswith('.csv'):
         try:
-            # Attempt to read the CSV file
-            data = pd.read_csv(uploaded_file, on_bad_lines="skip", encoding="utf-8")
+            # Read the raw file content
+            raw_text = uploaded_file.getvalue().decode("utf-8")
+
+            # Convert the raw text into a DataFrame, skipping problematic lines
+            data = pd.read_csv(io.StringIO(raw_text), on_bad_lines="skip", encoding="utf-8")
         except pd.errors.ParserError as e:
-            st.error(f"Parser error occurred while reading the CSV file: {e}")
+            st.error(f"Error reading the CSV file: {e}")
             st.stop()
         except Exception as e:
             st.error(f"Unexpected error reading the CSV file: {e}")
@@ -158,21 +161,22 @@ if uploaded_file:
         st.error("Uploaded file is empty or could not be read. Please upload a valid file.")
         st.stop()
 
-    # Remove unwanted header or footer rows with specific text
+    # Remove rows containing the unwanted text in any column
     unwanted_text = (
         "The data provided is for informational purposes only. Please consult a professional tax service or "
         "personal tax advisor if you need instructions on how to calculate cost basis or questions regarding "
         "your specific tax situation. Reminder: This data does not include Robinhood Crypto or Robinhood Spending activity."
     )
     try:
-        # Ensure the unwanted text check handles all rows in the DataFrame
-        data = data[~data.astype(str).applymap(lambda x: unwanted_text in x).any(axis=1)]
+        data = data[~data.apply(lambda row: row.astype(str).str.contains(unwanted_text, regex=False).any(), axis=1)]
     except Exception as e:
-        st.warning(f"Could not clean unwanted text: {e}")
+        st.warning(f"Could not remove unwanted text: {e}")
 
-    # Debug output for review
-    st.write("File uploaded and processed successfully!")
+    # Display the cleaned DataFrame for verification
+    #st.write("File uploaded and processed successfully! Here's the cleaned data:")
     #st.dataframe(data)
+
+
 
     # Preprocess Data
     try:
