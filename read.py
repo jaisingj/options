@@ -580,12 +580,12 @@ with pie_col2:
             autopct='%1.1f%%',
             startangle=140,
             colors=plt.cm.Paired.colors,
-            textprops={'color': 'black', 'fontsize': 5}  # Instrument names in black
+            textprops={'color': 'black', 'fontsize': 4}  # Instrument names in black
         )
 
         plt.setp(autotexts, color='white', size=6)
         plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=9)
-        plt.setp(autotexts, size=8)
+        plt.setp(autotexts, size=6)
         st.pyplot(fig2)
     else:
         st.write("No closed/expired transactions with positive premium for the selected month.")
