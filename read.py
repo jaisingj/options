@@ -90,7 +90,7 @@ with col2:
     image1 = Image.open('opin.jpeg')
     st.markdown(
         f"""
-        <div style="text-align: center; margin-top: -100px;">
+        <div style="text-align: center; margin-top: -90px;">
             <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:80%; display:block; margin-auto:'>
         </div>
         """,
