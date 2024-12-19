@@ -548,7 +548,7 @@ with pie_col1:
             colors=fancy_colors[:len(stock_distribution)],
             wedgeprops={'edgecolor': 'white', 'linewidth': 1},
             
-            textprops={'color': 'black', 'fontsize': 6}  # Instrument names in black
+            textprops={'color': 'black', 'fontsize': 4}  # Instrument names in black
         )
 
         # Label formatting
