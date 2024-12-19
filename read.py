@@ -547,13 +547,12 @@ with pie_col1:
             startangle=140,
             colors=fancy_colors[:len(stock_distribution)],
             wedgeprops={'edgecolor': 'white', 'linewidth': 1},
-            
             textprops={'color': 'black', 'fontsize': 4}  # Instrument names in black
         )
 
         # Label formatting
         plt.setp(autotexts, color='white', size=4)
-        plt.title(f"Open Positions ({selected_month})", fontsize=8)
+        plt.title(f"Open Positions ({selected_month})", fontsize=6)
         st.pyplot(fig1)
     else:
         st.write("No open positions for the selected month.")
@@ -584,7 +583,7 @@ with pie_col2:
         )
 
         plt.setp(autotexts, color='white', size=6)
-        plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=9)
+        plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=6)
         plt.setp(autotexts, size=6)
         st.pyplot(fig2)
     else:
