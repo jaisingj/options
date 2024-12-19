@@ -529,7 +529,7 @@ with pie_col1:
         glow_colors = [mcolors.to_rgba(c, alpha=0.3) for c in fancy_colors[:len(stock_distribution)]]
 
         # Plotting the glow effect as a background pie
-        fig1, ax1 = plt.subplots(figsize=(3, 3))
+        fig1, ax1 = plt.subplots(figsize=(2, 2))
         ax1.pie(
             stock_distribution['Percentage'],
             labels=None,
@@ -573,7 +573,7 @@ with pie_col2:
 
     # Plot Pie Chart
     if not stock_positive_premium.empty:
-        fig2, ax2 = plt.subplots(figsize=(4, 4))
+        fig2, ax2 = plt.subplots(figsize=(2, 2))
         wedges, texts, autotexts = ax2.pie(
             stock_positive_premium['Net Premium'],
             labels=stock_positive_premium['Instrument'],
