@@ -136,51 +136,71 @@ uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=
 
 if uploaded_file:
     if uploaded_file.name.endswith('.csv'):
-        # Read the uploaded file content and decode it
-        raw_text = uploaded_file.getvalue().decode("utf-8")
-        
-        # Filter out the unwanted text
-        cleaned_text = "\n".join([
-            line for line in raw_text.splitlines()
-            if not line.startswith("The data provided is for informational purposes only")
-        ])
-        
-        # Convert cleaned text to DataFrame, skipping problematic lines
-        data = pd.read_csv(io.StringIO(cleaned_text), on_bad_lines="skip")
+        try:
+            # Attempt to read the CSV file with flexible handling
+            data = pd.read_csv(uploaded_file, on_bad_lines="skip", encoding="utf-8")
+        except pd.errors.ParserError:
+            # Retry reading CSV with alternative settings (e.g., different separator)
+            st.warning("Encountered issues with the CSV file. Attempting alternative parsing...")
+            try:
+                data = pd.read_csv(uploaded_file, on_bad_lines="skip", sep=";", encoding="utf-8")
+            except Exception as e:
+                st.error(f"Failed to read the CSV file: {e}")
+                st.stop()
+        except Exception as e:
+            st.error(f"Unexpected error reading the CSV file: {e}")
+            st.stop()
     else:
-        # For Excel files, directly read the data
-        data = pd.read_excel(uploaded_file)
+        try:
+            # Attempt to read the Excel file
+            data = pd.read_excel(uploaded_file)
+        except Exception as e:
+            st.error(f"Failed to read the Excel file: {e}")
+            st.stop()
 
     # Debug: Ensure data is loaded
     if data is None or data.empty:
         st.error("Uploaded file is empty or could not be read. Please upload a valid file.")
         st.stop()
 
-    # Remove any unwanted header or footer rows containing specific text
+    # Remove unwanted header or footer rows with specific text
     unwanted_text = (
         "The data provided is for informational purposes only. Please consult a professional tax service or "
         "personal tax advisor if you need instructions on how to calculate cost basis or questions regarding "
         "your specific tax situation. Reminder: This data does not include Robinhood Crypto or Robinhood Spending activity."
     )
-    data = data[~data.apply(lambda row: row.astype(str).str.contains(unwanted_text, regex=False).any(), axis=1)]
+    try:
+        data = data[~data.apply(lambda row: row.astype(str).str.contains(unwanted_text, regex=False).any(), axis=1)]
+    except Exception as e:
+        st.warning(f"Could not clean unwanted text: {e}")
 
     # Preprocess Data
-    data['Amount'] = data['Amount'].apply(parse_amount)
-    data['Activity Date'] = pd.to_datetime(data['Activity Date'], errors='coerce').dt.date
-    data['Description'] = data['Description'].astype(str)
+    try:
+        if 'Amount' in data.columns:
+            data['Amount'] = data['Amount'].apply(parse_amount)
+        if 'Activity Date' in data.columns:
+            data['Activity Date'] = pd.to_datetime(data['Activity Date'], errors='coerce').dt.date
+        if 'Description' in data.columns:
+            data['Description'] = data['Description'].astype(str)
+    except KeyError as e:
+        st.error(f"Missing required columns in the uploaded file: {e}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error during preprocessing: {e}")
+        st.stop()
 
     # Extract Expiry Date and Add to Data
-    data['Expiry Date'] = data['Description'].apply(extract_expiry_date)
+    try:
+        data['Expiry Date'] = data['Description'].apply(extract_expiry_date)
+    except Exception as e:
+        st.warning(f"Error extracting expiry dates: {e}")
+
+    # Further processing...
+    st.write("File uploaded and processed successfully!")
 
     # Separate STO and BTC Transactions
     sto_data = data[data['Trans Code'] == 'STO']
     btc_data = data[data['Trans Code'] == 'BTC']
-
-    # Debug: Ensure STO and BTC data are valid
-    #st.write("### STO Transactions")
-    #st.dataframe(sto_data)
-    #st.write("### BTC Transactions")
-    #st.dataframe(btc_data)
 
     # Group STO transactions and include Quantity
     sto_grouped = sto_data.groupby(['Description', 'Instrument']).agg({
