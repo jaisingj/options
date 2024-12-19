@@ -583,8 +583,8 @@ with pie_col2:
         )
 
         plt.setp(autotexts, color='white', size=6)
-        plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=6)
-        plt.setp(autotexts, size=6)
+        plt.title(f"Closed/Expired Premium ({selected_month})", fontsize=8)
+        plt.setp(autotexts, size=4)
         st.pyplot(fig2)
     else:
         st.write("No closed/expired transactions with positive premium for the selected month.")
