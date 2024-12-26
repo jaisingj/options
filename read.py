@@ -245,27 +245,6 @@ if uploaded_file:
         ignore_index=True
     )
 
-# Guard Clause: Ensure a file is uploaded before proceeding
-if not uploaded_file:
-    #st.warning("Please upload a valid file to proceed.")
-    st.stop()
-
-# File Processing
-if uploaded_file.name.endswith('.csv'):
-    raw_text = uploaded_file.getvalue().decode("utf-8")
-    cleaned_text = "\n".join([
-        line for line in raw_text.splitlines()
-        if not line.startswith("The data provided is for informational purposes only")
-    ])
-    data = pd.read_csv(io.StringIO(cleaned_text))
-else:
-    data = pd.read_excel(uploaded_file)
-
-# Stop if data is empty
-if data.empty:
-    st.error("Uploaded file is empty or invalid.")
-    st.stop()
-
 # Ensure file processing is complete before running this block
 if 'monthly_summary' in locals():
     # Styled Monthly Summary Table
