@@ -206,7 +206,7 @@ with col2:
         st.markdown(
             f"""
             <div style="text-align: center; margin-top: -60px;">
-                <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:90%; display:block; margin:auto;'>
+                <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:100%; display:block; margin:auto;'>
             </div>
             """,
             unsafe_allow_html=True
