@@ -25,5 +25,4 @@ nltk==3.7
 xlsxwriter==3.0.3
 pip==23.3.2
 replicate
-millify
 
