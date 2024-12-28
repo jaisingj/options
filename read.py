@@ -212,7 +212,7 @@ with col2:
             unsafe_allow_html=True
         )
     except FileNotFoundError:
-        st.warning("Header image 'coined.jpeg' not found. Please ensure the image is in the correct directory.")
+        st.warning("Header image 'coined.jpg' not found. Please ensure the image is in the correct directory.")
 
 # ----------------------------------------------------------------------------
 # File Upload + Data Preprocessing
@@ -340,10 +340,9 @@ if uploaded_file is not None:
 
     # Premium($), Tag, etc.
     merged_data['Amount'] = merged_data['STO($)'] + merged_data['BTC($)']
-    # Removed Activity Month as per user request
-    # merged_data['Activity Month'] = pd.to_datetime(
-    #     merged_data['Activity Date'], errors='coerce'
-    # ).dt.to_period('M')
+    merged_data['Activity Month'] = pd.to_datetime(
+        merged_data['Activity Date'], errors='coerce'
+    ).dt.to_period('M')
     merged_data['Quantity'] = merged_data.apply(compute_quantity, axis=1).round(0).astype(int)
     merged_data['Premium($)'] = merged_data.apply(calculate_premium, axis=1)
 
@@ -355,16 +354,16 @@ if uploaded_file is not None:
         merged_data.drop(columns=['Description'], inplace=True)
 
     # -----------------------------------------------------------------------
-    # Removed Monthly Summary as per user request
+    # Monthly Summary (sum Premium($))
     # -----------------------------------------------------------------------
-    # monthly_summary = (
-    #     merged_data
-    #     .groupby('Activity Month')['Premium($)']
-    #     .sum()
-    #     .reset_index()
-    #     .rename(columns={'Premium($)': 'Net Premium'})
-    #     .sort_values(by='Activity Month')
-    # )
+    monthly_summary = (
+        merged_data
+        .groupby('Activity Month')['Premium($)']
+        .sum()
+        .reset_index()
+        .rename(columns={'Premium($)': 'Net Premium'})
+        .sort_values(by='Activity Month')
+    )
 
     # ----------------------------------------------------------------------------
     # Layout: Tax Bracket Slider
@@ -378,34 +377,37 @@ if uploaded_file is not None:
             format_func=lambda x: f"{int(x*100)}%"
         )
 
-    # -----------------------------------------------------------------------
-    # Summary Table and Bar Chart (Aggregated by Status)
-    # -----------------------------------------------------------------------
+    # Apply Tax Rate
+    monthly_summary['Net After Tax'] = monthly_summary['Net Premium'] * (1 - tax_rate)
+
+    # Add Grand Total for Net Premium and Net After Tax
+    grand_total_net_premium = monthly_summary['Net Premium'].sum()
+    grand_total_net_after_tax = monthly_summary['Net After Tax'].sum()
+
+    # Add Grand Total row
+    grand_total_row = pd.DataFrame({
+        'Activity Month': ['Grand Total'],
+        'Net Premium': [grand_total_net_premium],
+        'Net After Tax': [grand_total_net_after_tax]
+    })
+
+    monthly_summary = pd.concat(
+        [monthly_summary, grand_total_row],
+        ignore_index=True
+    )
+
+    # ----------------------------------------------------------------------------
+    # Layout: Summary Section and Bar Chart
+    # ----------------------------------------------------------------------------
     summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.4, 0.1])
-    with summary_col2:
-        st.subheader("Summary by Status")
-
-        # Aggregate Premium($) by Status
-        summary_table = merged_data.groupby('Status', as_index=False)['Premium($)'].sum()
-        summary_table = summary_table.rename(columns={'Premium($)': 'Total Premium($)'})
-
-        # Apply Tax
-        summary_table['Total Premium After Tax($)'] = summary_table['Total Premium($)'] * (1 - tax_rate)
-
-        # Add Grand Total
-        grand_total = summary_table[['Total Premium($)', 'Total Premium After Tax($)']].sum().to_frame().T
-        grand_total['Status'] = 'Grand Total'
-        summary_table = pd.concat([summary_table, grand_total], ignore_index=True)
-
-        # Style the summary table
-        styled_summary = (
-            summary_table
+    with summary_col1:
+        st.subheader("Summary")
+        # Style monthly summary
+        styled_monthly_summary = (
+            monthly_summary
             .style
-            .format({
-                "Total Premium($)": "${:,.2f}",
-                "Total Premium After Tax($)": "${:,.2f}"
-            })
-            .set_properties(**{'font-size': '18px','text-align':'center'})
+            .format({"Net Premium":"${:,.2f}","Net After Tax":"${:,.2f}"})
+            .set_properties(**{'font-size':'18px','text-align':'center'})
             .set_table_styles([
                 {
                     'selector':'thead th',
@@ -434,74 +436,107 @@ if uploaded_file is not None:
                     ]
                 }
             ])
-            .apply(
-                lambda row: ['background-color: aliceblue; color: black; font-weight: bold; text-align:center']*len(row) 
-                if row['Status'] == 'Grand Total' else ['']*len(row), axis=1
-            )
+            .apply(lambda row: ['background-color: aliceblue; color: black; font-weight: bold; text-align:center']*len(row) if row['Activity Month'] == 'Grand Total' else ['']*len(row), axis=1)
         )
-
-        st.write("### Summary by Status")
-        st.write(styled_summary.to_html(), unsafe_allow_html=True)
-
-        # ------------------- Added Bar Chart Below Summary Table -------------------
-        st.write("### Total Premium by Status")
-
-        # Filter out 'Grand Total' for the bar chart
-        bar_chart_data = summary_table[summary_table['Status'] != 'Grand Total']
-
-        if not bar_chart_data.empty:
-            fig_bar = px.bar(
-                bar_chart_data,
-                x='Status',
-                y='Total Premium($)',
-                color='Status',
-                title="Total Premium by Status",
-                text='Total Premium($)',
-                color_discrete_sequence=px.colors.qualitative.Plotly
-            )
-
-            fig_bar.update_traces(texttemplate='$%{text:.2s}', textposition='outside')
-            fig_bar.update_layout(
-                uniformtext_minsize=8,
-                uniformtext_mode='hide',
-                showlegend=False,
-                xaxis_title="Status",
-                yaxis_title="Total Premium($)",
-                yaxis=dict(tickprefix="$"),
-                margin=dict(l=40, r=40, t=60, b=40)
-            )
-
-            st.plotly_chart(fig_bar, use_container_width=True)
-        else:
-            st.write("No data available for the bar chart.")
-        # ---------------------------------------------------------------------------
-
-        # Download Summary CSV
-        summary_csv = summary_table.to_csv(index=False)
+        st.write(styled_monthly_summary.to_html(), unsafe_allow_html=True)
+        summary_csv = monthly_summary.to_csv(index=False)
         st.download_button(
             label="Download Summary CSV",
             data=summary_csv,
-            file_name="summary_by_status.csv",
+            file_name="monthly_summary.csv",
             mime="text/csv"
         )
 
-    # -----------------------------------------------------------------------
-    # Removed plot_monthly_premium function and related plot
-    # -----------------------------------------------------------------------
-    # def plot_monthly_premium(monthly_summary):
-    #     # Function body...
-    #     pass
-    # with summary_col2:
-    #     st.subheader("Monthly Net Premium")
-    #     plot_monthly_premium(monthly_summary)
+    # Bar Chart (Using Plotly Express)
+    def plot_monthly_premium(monthly_summary):
+        chart_data = monthly_summary[monthly_summary['Activity Month'] != 'Grand Total']
+        chart_data['Activity Month'] = chart_data['Activity Month'].astype(str)
+
+        # Ensure 'Net After Tax' exists
+        if 'Net After Tax' not in chart_data.columns:
+            st.error("'Net After Tax' column is missing in chart_data.")
+            return
+
+        # Create a grouped bar chart
+        try:
+            fig = px.bar(
+                chart_data,
+                x='Activity Month',
+                y=['Net Premium', 'Net After Tax'],
+                labels={'value': 'Net Premium ($)', 'Activity Month': 'Month'},
+                title='Monthly Net Premium',
+                barmode='group',
+                text_auto='.2s',
+                height=600,
+                width=800
+            )
+        except ValueError as ve:
+            st.error(f"Plotly Error: {ve}")
+            st.stop()
+
+        # Update layout for Arial font and increase title font size
+        fig.update_layout(
+            font=dict(family="Arial", size=12),
+            title=dict(font=dict(family="Arial", size=20)),  # Increased font size
+            legend=dict(font=dict(family="Arial", size=12)),
+            xaxis_tickangle=-45
+        )
+
+        # Update y-axis to have some padding
+        min_val = min(chart_data['Net Premium'].min(), chart_data['Net After Tax'].min())
+        max_val = max(chart_data['Net Premium'].max(), chart_data['Net After Tax'].max())
+        fig.update_yaxes(range=[min_val * 1.2 if min_val < 0 else 0, max_val * 1.2 if max_val > 0 else 0])
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    with summary_col2:
+        st.subheader("Monthly Net Premium")
+        plot_monthly_premium(monthly_summary)
 
     # ----------------------------------------------------------------------------
     # Layout: Three Columns with Selector in the Middle
     # ----------------------------------------------------------------------------
     selector_colA, selector_colB, selector_colC = st.columns([1, 2, 1])
+
     with selector_colB:
-        # Instead of monthly filter, filters remain for Instrument and Expiry Date
-        filtered_data_for_pie = merged_data.copy()
+        # Extract unique months excluding 'Grand Total'
+        months = monthly_summary[
+            monthly_summary['Activity Month'] != 'Grand Total'
+        ]['Activity Month'].astype(str).unique()
+        
+        # Convert month strings to datetime objects for proper sorting
+        months_datetime = pd.to_datetime(months, format='%Y-%m', errors='coerce')
+        
+        # Remove any NaT values resulting from incorrect formats
+        months_datetime = months_datetime.dropna()
+        
+        # Sort the months in descending order (most recent first)
+        sorted_months_datetime = months_datetime.sort_values(ascending=False)
+        
+        # Convert back to string format 'YYYY-MM'
+        sorted_months = sorted_months_datetime.strftime('%Y-%m').tolist()
+        
+        # Get the current month in 'YYYY-MM' format
+        current_month = date.today().strftime('%Y-%m')
+        
+        # Determine the default index: current month if exists, else first month
+        if current_month in sorted_months:
+            default_index = sorted_months.index(current_month)
+        else:
+            default_index = 0  # Default to the first month if current month not found
+        
+        # Create the selectbox with sorted options and default selection
+        selected_month = st.selectbox(
+            label="",
+            options=sorted_months,
+            index=default_index,
+            key="month_filter_pie_col1"
+        )
+        
+        # Properly filter data based on the selected month
+        filtered_data = merged_data[
+            merged_data['Activity Month'].astype(str) == selected_month
+        ]
 
     # ----------------------------------------------------------------------------
     # Layout: Pie Charts Positioned Below the Selector
@@ -523,7 +558,7 @@ if uploaded_file is not None:
 
     # 1) Donut Chart: Open Positions by Quantity
     with pie_col1:
-        open_positions = filtered_data_for_pie[filtered_data_for_pie['Status'] == 'Open']
+        open_positions = filtered_data[filtered_data['Status'] == 'Open']
         total_open_qty = open_positions['Quantity'].sum()
         if not open_positions.empty and total_open_qty > 0:
             stock_distribution = (
@@ -541,7 +576,7 @@ if uploaded_file is not None:
                 stock_distribution,
                 names='Instrument',
                 values='Quantity',
-                title="Open Positions",
+                title=f"Open Positions<br>({selected_month})",
                 hole=0.3,  # This makes it a donut chart
                 color='Instrument',
                 color_discrete_sequence=color_sequence
@@ -561,35 +596,31 @@ if uploaded_file is not None:
 
             st.plotly_chart(fig1, use_container_width=True)
         else:
-            st.write("No open positions.")
+            st.write("No open positions for the selected month.")
 
-    # 2) Donut Chart: Closed vs Expired Premium
+    # 2) Donut Chart: Closed/Expired Premium
     with pie_col2:
-        # Filter data for Closed and Expired statuses with positive Amount
-        closed_expired_positions = filtered_data_for_pie[
-            (filtered_data_for_pie['Status'].isin(['Closed', 'Expired'])) & 
-            (filtered_data_for_pie['Amount'] > 0)
+        positive_premium_positions = filtered_data[
+            (filtered_data['Status'].isin(['Closed', 'Expired'])) & 
+            (filtered_data['Amount'] > 0)
         ]
-
-        if not closed_expired_positions.empty:
-            # Group by Status instead of Instrument
-            status_premium = (
-                closed_expired_positions
-                .groupby('Status')['Amount']
-                .sum()
-                .reset_index()
-            )
-
+        stock_positive_premium = (
+            positive_premium_positions
+            .groupby('Instrument')['Amount']
+            .sum()
+            .reset_index()
+        )
+        if not stock_positive_premium.empty:
             # Use the custom color palette
-            color_sequence = custom_colors[:len(status_premium)]
+            color_sequence = custom_colors[:len(stock_positive_premium)]
 
             fig2 = px.pie(
-                status_premium,
-                names='Status',
+                stock_positive_premium,
+                names='Instrument',
                 values='Amount',
-                title="Closed vs Expired Premium",
+                title=f"Closed/Expired Premium<br>({selected_month})",
                 hole=0.3,  # This makes it a donut chart
-                color='Status',
+                color='Instrument',
                 color_discrete_sequence=color_sequence
             )
 
@@ -600,14 +631,14 @@ if uploaded_file is not None:
 
             fig2.update_layout(
                 title=dict(font=dict(family="Arial", size=18)),  # Increased font size
-                legend_title_text='Status',
+                legend_title_text='Instrument',
                 legend=dict(font=dict(family="Arial", size=12), orientation='h', x=0.5, xanchor='center', y=-0.1),
                 margin=dict(l=10, r=10, t=60, b=40)  # Adjusted top margin for larger title
             )
 
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.write("No closed or expired transactions with positive premium.")
+            st.write("No closed/expired transactions with positive premium for the selected month.")
 
     # 3) Additional Pie Chart: Calls vs Puts Distribution
     with pie_col3:
@@ -630,7 +661,7 @@ if uploaded_file is not None:
             calls_puts_distribution,
             names='Option Type',
             values='Count',
-            title="Calls vs Puts Distribution",
+            title=f"Calls vs Puts Distribution<br>({selected_month})",
             hole=0.3,  # Makes it a donut chart
             color='Option Type',
             color_discrete_sequence=color_sequence_cp
@@ -654,7 +685,7 @@ if uploaded_file is not None:
     # Detailed Transactions - sort descending by Activity Date
     # Omit the 'Description' column from final table
     # ----------------------------------------------------------------------------
-    if 'Activity Date' in merged_data.columns:
+    if 'Activity Month' in merged_data.columns:
         # Rearrange columns as per user request
         desired_columns = [
             'Activity Date',   # First column
@@ -673,9 +704,6 @@ if uploaded_file is not None:
 
         # Rearrange the columns
         merged_data = merged_data[existing_desired_columns + other_columns]
-    else:
-        st.error("The merged data does not contain 'Activity Date'.")
-        st.stop()
 
     merged_data['Activity Date'] = pd.to_datetime(merged_data['Activity Date'], errors='coerce')
     sorted_transactions = merged_data.sort_values(by='Activity Date', ascending=False)
@@ -695,17 +723,16 @@ if uploaded_file is not None:
     formatted_fridays = [d.strftime('%Y-%m-%d') for d in fridays]
     formatted_fridays.insert(0, "All")
 
-    # ------------------ Modified Default Expiry Date -------------------------
-    # Determine the most recent expiry date (latest Friday <= today)
+    # Determine if today is Friday
     today = date.today()
-    past_fridays = [d for d in fridays if d <= today]
-    if past_fridays:
-        latest_friday = max(past_fridays)
-        latest_friday_str = latest_friday.strftime('%Y-%m-%d')
-        default_expiry = latest_friday_str
+    if today.weekday() == 4:  # 4 represents Friday
+        today_str = today.strftime('%Y-%m-%d')
+        if today_str in formatted_fridays:
+            default_expiry = today_str
+        else:
+            default_expiry = "All"
     else:
         default_expiry = "All"
-    # --------------------------------------------------------------------------
 
     # Create three columns for filters
     filter_col1, filter_col2, filter_col3 = st.columns([1, 2, 2])
@@ -745,7 +772,7 @@ if uploaded_file is not None:
 
     # Check if filtered_transactions is empty
     if filtered_transactions.empty:
-        st.write("No transactions were found for the selected filters. Please adjust your selections.")
+        st.write("No transactions were found for this date. Please choose another date!!")
     else:
         # Final table
         styled_transactions = (
