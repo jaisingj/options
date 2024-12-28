@@ -464,7 +464,7 @@ if uploaded_file is not None:
                 x='Activity Month',
                 y=['Net Premium', 'Net After Tax'],
                 labels={'value': 'Net Premium ($)', 'Activity Month': 'Month'},
-                title='Monthly Net Premium',
+                title='',
                 barmode='group',
                 text_auto='.2s',
                 height=600,
@@ -477,7 +477,7 @@ if uploaded_file is not None:
         # Update layout for Arial font and increase title font size
         fig.update_layout(
             font=dict(family="Arial", size=12),
-            title=dict(font=dict(family="Arial", size=20)),  # Increased font size
+            #title=dict(font=dict(family="Arial", size=20)),  # Increased font size
             legend=dict(font=dict(family="Arial", size=12)),
             xaxis_tickangle=-45
         )
