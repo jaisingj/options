@@ -399,7 +399,7 @@ if uploaded_file is not None:
     # ----------------------------------------------------------------------------
     # Layout: Summary Section and Bar Chart
     # ----------------------------------------------------------------------------
-    summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.4, 0.1])
+    summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.1, 0.4])
     with summary_col1:
         st.subheader("Summary")
         # Style monthly summary
@@ -489,7 +489,7 @@ if uploaded_file is not None:
 
         st.plotly_chart(fig, use_container_width=True)
 
-    with summary_col2:
+    with summary_col3:
         st.subheader("Monthly Net Premium")
         plot_monthly_premium(monthly_summary)
 
