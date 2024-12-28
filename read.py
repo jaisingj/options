@@ -618,7 +618,7 @@ if uploaded_file is not None:
                 stock_positive_premium,
                 names='Instrument',
                 values='Amount',
-                title=f"Closed/Expired Premium<br>({selected_month})",
+                title=f"Closed/Expired<br>({selected_month})",
                 hole=0.3,  # This makes it a donut chart
                 color='Instrument',
                 color_discrete_sequence=color_sequence
@@ -661,7 +661,7 @@ if uploaded_file is not None:
             calls_puts_distribution,
             names='Option Type',
             values='Count',
-            title=f"Calls vs Puts Distribution<br>({selected_month})",
+            title=f"Calls vs Puts<br>({selected_month})",
             hole=0.3,  # Makes it a donut chart
             color='Option Type',
             color_discrete_sequence=color_sequence_cp
