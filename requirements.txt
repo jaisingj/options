@@ -2,7 +2,6 @@ altair==4.2.2
 beautifulsoup4==4.11.2
 certifi==2023.5.7
 config==0.5.1
-functions==0.7.0
 ipython==8.13.2
 Jinja2==3.1.2
 lxml==4.9.1 --only-binary=:all:
