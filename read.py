@@ -10,7 +10,7 @@ from PIL import Image
 # ----------------------------------------------------------------------------
 # Streamlit App Setup
 # ----------------------------------------------------------------------------
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Optimus$",layout="wide")
 
 def image_to_base64(image):
     """
