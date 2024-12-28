@@ -10,7 +10,7 @@ from PIL import Image
 # ----------------------------------------------------------------------------
 # Streamlit App Setup
 # ----------------------------------------------------------------------------
-st.set_page_config(page_title="Sidebar Toggle Example", layout="wide")
+st.set_page_config(layout="wide")
 
 def image_to_base64(image):
     """
@@ -20,26 +20,9 @@ def image_to_base64(image):
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# ----------------------------------------------------------------------------
-# Custom CSS for the sidebar and overall app
-# ----------------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-        [data-testid="stSidebar"] {
-            background-color: #C2E0FF;
-        }
-        [data-testid="stSidebar"] .block-container {
-            font-size: 14px;
-        }
-        /* Adjusting the main content font size */
-        .block-container {
-            font-size: 16px;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+
+
+import streamlit as st
 
 # ----------------------------------------------------------------------------
 # Initialize Sidebar State
@@ -265,7 +248,7 @@ with col2:
         image1 = Image.open('coined.jpeg')
         st.markdown(
             f"""
-            <div style="text-align: center; margin-top: -100px;">
+            <div style="text-align: center; margin-top: -130px;">
                 <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:120%; display:block; margin:auto;'>
             </div>
             """,
