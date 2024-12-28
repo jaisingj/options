@@ -10,7 +10,7 @@ from PIL import Image
 # ----------------------------------------------------------------------------
 # Streamlit App Setup
 # ----------------------------------------------------------------------------
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Sidebar Toggle Example", layout="wide")
 
 def image_to_base64(image):
     """
@@ -20,30 +20,73 @@ def image_to_base64(image):
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# ----------------------------------------------------------------------------
-# Custom CSS for the sidebar and overall app
-# ----------------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-        [data-testid="stSidebar"] {
-            background-color: #C2E0FF;
-        }
-        [data-testid="stSidebar"] .block-container {
-            font-size: 14px;
-        }
-        /* Adjusting the main content font size */
-        .block-container {
-            font-size: 16px;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+
+
+import streamlit as st
 
 # ----------------------------------------------------------------------------
-# Helper Functions
+# Initialize Sidebar State
 # ----------------------------------------------------------------------------
+if "sidebar_hidden" not in st.session_state:
+    st.session_state.sidebar_hidden = False  # Sidebar is visible by default
+
+# ----------------------------------------------------------------------------
+# Custom CSS for Sidebar Visibility
+# ----------------------------------------------------------------------------
+def apply_sidebar_visibility():
+    """
+    Applies CSS dynamically to hide or show the sidebar based on session state.
+    """
+    if st.session_state.sidebar_hidden:
+        # Hide the sidebar
+        st.markdown(
+            """
+            <style>
+                [data-testid="stSidebar"] {
+                    display: none; /* Completely hides the sidebar */
+                }
+                [data-testid="collapsedControl"] {
+                    display: none; /* Hides the toggle arrow */
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        # Show the sidebar (default behavior)
+        st.markdown(
+            """
+            <style>
+                [data-testid="stSidebar"] {
+                    display: block; /* Shows the sidebar */
+                }
+                [data-testid="collapsedControl"] {
+                    display: block; /* Shows the toggle arrow */
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ----------------------------------------------------------------------------
+# Apply Sidebar Visibility Dynamically
+# ----------------------------------------------------------------------------
+apply_sidebar_visibility()
+
+# ----------------------------------------------------------------------------
+# Toggle Sidebar Functionality
+# ----------------------------------------------------------------------------
+# Dynamically set button label
+button_label = "Show Sidebar" if st.session_state.sidebar_hidden else "Hide Sidebar"
+
+if st.button(button_label):
+    # Toggle sidebar visibility in session state
+    st.session_state.sidebar_hidden = not st.session_state.sidebar_hidden
+
+# ----------------------------------------------------------------------------
+# Main Content
+# ----------------------------------------------------------------------------
+
 def parse_amount(amount):
     """
     Clean monetary strings like '$1,234.56' or '(1,234.56)'.
@@ -183,9 +226,9 @@ def calculate_premium(row):
     """
     return row['STO($)'] - abs(row['BTC($)'])
 
-def generate_fridays(start_year=2023, end_year=2030):
+def generate_fridays(start_year=2023, end_year=2025):
     """
-    Generate a list of dates that are Fridays from January 2023 to December 2030.
+    Generate a list of dates that are Fridays from January 2023 to December 2025.
     """
     fridays = []
     for year in range(start_year, end_year + 1):
@@ -205,8 +248,8 @@ with col2:
         image1 = Image.open('coined.jpeg')
         st.markdown(
             f"""
-            <div style="text-align: center; margin-top: -60px;">
-                <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:100%; display:block; margin:auto;'>
+            <div style="text-align: center; margin-top: -100px;">
+                <img src='data:image/jpeg;base64,{image_to_base64(image1)}' style='max-width:120%; display:block; margin:auto;'>
             </div>
             """,
             unsafe_allow_html=True
@@ -217,9 +260,12 @@ with col2:
 # ----------------------------------------------------------------------------
 # File Upload + Data Preprocessing
 # ----------------------------------------------------------------------------
-uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=["csv","xlsx"])
+uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
+    # Hide the sidebar by clearing its content
+    st.sidebar.empty()
+
     # 1) Load data
     if uploaded_file.name.endswith('.csv'):
         data = pd.read_csv(uploaded_file, on_bad_lines="skip")
@@ -399,7 +445,7 @@ if uploaded_file is not None:
     # ----------------------------------------------------------------------------
     # Layout: Summary Section and Bar Chart
     # ----------------------------------------------------------------------------
-    summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.1, 0.4])
+    summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.1, 0.5])
     with summary_col1:
         st.subheader("Summary")
         # Style monthly summary
@@ -464,7 +510,7 @@ if uploaded_file is not None:
                 x='Activity Month',
                 y=['Net Premium', 'Net After Tax'],
                 labels={'value': 'Net Premium ($)', 'Activity Month': 'Month'},
-                title='',
+                #title='Monthly Net Premium',
                 barmode='group',
                 text_auto='.2s',
                 height=600,
@@ -618,7 +664,7 @@ if uploaded_file is not None:
                 stock_positive_premium,
                 names='Instrument',
                 values='Amount',
-                title=f"Closed/Expired<br>({selected_month})",
+                title=f"Closed/Expired Premium<br>({selected_month})",
                 hole=0.3,  # This makes it a donut chart
                 color='Instrument',
                 color_discrete_sequence=color_sequence
@@ -661,7 +707,7 @@ if uploaded_file is not None:
             calls_puts_distribution,
             names='Option Type',
             values='Count',
-            title=f"Calls vs Puts<br>({selected_month})",
+            title=f"Calls vs Puts Distribution<br>({selected_month})",
             hole=0.3,  # Makes it a donut chart
             color='Option Type',
             color_discrete_sequence=color_sequence_cp
@@ -717,7 +763,7 @@ if uploaded_file is not None:
     # Layout: Filters Above Detailed Transactions Table
     # ----------------------------------------------------------------------------
     # Generate list of Fridays
-    fridays = generate_fridays(start_year=2023, end_year=2030)
+    fridays = generate_fridays(start_year=2023, end_year=2025)
 
     # Add "All" to the list of fridays
     formatted_fridays = [d.strftime('%Y-%m-%d') for d in fridays]
@@ -754,6 +800,7 @@ if uploaded_file is not None:
             index=formatted_fridays.index(default_expiry) if default_expiry in formatted_fridays else 0,
             key="date_filter"
         )
+    
 
     # Apply filters
     filtered_transactions = sorted_transactions.copy()
