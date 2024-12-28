@@ -20,9 +20,26 @@ def image_to_base64(image):
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-
-
-import streamlit as st
+# ----------------------------------------------------------------------------
+# Custom CSS for the sidebar and overall app
+# ----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebar"] {
+            background-color: #C2E0FF;
+        }
+        [data-testid="stSidebar"] .block-container {
+            font-size: 14px;
+        }
+        /* Adjusting the main content font size */
+        .block-container {
+            font-size: 16px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # ----------------------------------------------------------------------------
 # Initialize Sidebar State
