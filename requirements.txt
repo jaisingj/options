@@ -5,7 +5,7 @@ config==0.5.1
 functions==0.7.0
 ipython==8.13.2
 Jinja2==3.1.2
-lxml==4.9.1
+lxml==4.9.1 --only-binary=:all:
 matplotlib==3.8.4
 numpy==1.22.0
 pandas==2.0.1
@@ -16,7 +16,7 @@ python_dateutil==2.8.2
 pytz==2022.7.1
 pygame==2.5.2
 Requests==2.31.0
-scipy==1.7.3
+scipy==1.10
 seaborn==0.12.2
 streamlit==1.25.0
 streamlit_on_Hover_tabs==1.0.1
@@ -30,4 +30,3 @@ xlsxwriter==3.0.3
 pip==24.3.1
 replicate
 millify
-
