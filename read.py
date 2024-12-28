@@ -4,7 +4,6 @@ from datetime import datetime, date, timedelta
 import plotly.express as px
 import re
 import io
-import bumpy
 import base64
 from PIL import Image
 
