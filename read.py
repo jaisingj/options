@@ -4,13 +4,15 @@ from datetime import datetime, date, timedelta
 import plotly.express as px
 import re
 import io
+import os
 import base64
+import numpy as np  # Added NumPy import
 from PIL import Image
 
 # ----------------------------------------------------------------------------
 # Streamlit App Setup
 # ----------------------------------------------------------------------------
-st.set_page_config(page_title="Optimus$",layout="wide")
+st.set_page_config(layout="wide")
 
 def image_to_base64(image):
     """
@@ -272,9 +274,9 @@ with col2:
             unsafe_allow_html=True
         )
     except FileNotFoundError:
-        st.warning("Header image 'coined.jpg' not found. Please ensure the image is in the correct directory.")
+        st.warning("Header image 'coined.jpeg' not found. Please ensure the image is in the correct directory.")
 
-# ----------------------------------------------------------------------------
+## ----------------------------------------------------------------------------
 # File Upload + Data Preprocessing
 # ----------------------------------------------------------------------------
 uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=["csv", "xlsx"])
@@ -283,11 +285,24 @@ if uploaded_file is not None:
     # Hide the sidebar by clearing its content
     st.sidebar.empty()
 
-    # 1) Load data
-    if uploaded_file.name.endswith('.csv'):
-        data = pd.read_csv(uploaded_file, on_bad_lines="skip")
+    # Get today's date in the desired format (e.g., 'dec29')
+    current_date_str = datetime.now().strftime("%b%d").lower()
+
+    # Generate the new filename
+    new_filename = f"{current_date_str}.csv"
+
+    # Save the uploaded file with the new name
+    sanitized_path = os.path.join('/tmp', new_filename)  # Use '/tmp' or your desired directory
+    with open(sanitized_path, 'wb') as f:
+        f.write(uploaded_file.read())
+
+    st.write(f"File has been imported as: {new_filename}")
+
+    # Load the data based on file type
+    if new_filename.endswith('.csv'):
+        data = pd.read_csv(sanitized_path, on_bad_lines="skip")
     else:
-        data = pd.read_excel(uploaded_file)
+        data = pd.read_excel(sanitized_path)
 
     # 2) Strip whitespace from columns
     data.columns = data.columns.str.strip()
@@ -429,6 +444,13 @@ if uploaded_file is not None:
     )
 
     # ----------------------------------------------------------------------------
+    # Parse 'BTC Month' and 'Expiry Month' for enhanced filtering
+    # ----------------------------------------------------------------------------
+    # Extract month in 'YYYY-MM' format from 'BTC Date' and 'Expiry Date'
+    merged_data['BTC Month'] = pd.to_datetime(merged_data['BTC Date'], errors='coerce').dt.to_period('M')
+    merged_data['Expiry Month'] = pd.to_datetime(merged_data['Expiry Date'], errors='coerce').dt.to_period('M')
+
+    # ----------------------------------------------------------------------------
     # Layout: Tax Bracket Slider
     # ----------------------------------------------------------------------------
     tax_colA, tax_colB, tax_colC = st.columns([1, 2, 1])
@@ -562,44 +584,46 @@ if uploaded_file is not None:
     selector_colA, selector_colB, selector_colC = st.columns([1, 2, 1])
 
     with selector_colB:
-        # Extract unique months excluding 'Grand Total'
-        months = monthly_summary[
-            monthly_summary['Activity Month'] != 'Grand Total'
-        ]['Activity Month'].astype(str).unique()
-        
+        # Extract unique months from both 'BTC Month' and 'Expiry Month' excluding 'Grand Total'
+        unique_btc_months = merged_data['BTC Month'].dropna().astype(str).unique()
+        unique_expiry_months = merged_data['Expiry Month'].dropna().astype(str).unique()
+        all_unique_months = pd.unique(np.concatenate((unique_btc_months, unique_expiry_months)))
+        all_unique_months = [month for month in all_unique_months if month != 'nan']
+
         # Convert month strings to datetime objects for proper sorting
-        months_datetime = pd.to_datetime(months, format='%Y-%m', errors='coerce')
-        
+        months_datetime = pd.to_datetime(all_unique_months, format='%Y-%m', errors='coerce')
+
         # Remove any NaT values resulting from incorrect formats
         months_datetime = months_datetime.dropna()
-        
+
         # Sort the months in descending order (most recent first)
         sorted_months_datetime = months_datetime.sort_values(ascending=False)
-        
+
         # Convert back to string format 'YYYY-MM'
         sorted_months = sorted_months_datetime.strftime('%Y-%m').tolist()
-        
+
         # Get the current month in 'YYYY-MM' format
         current_month = date.today().strftime('%Y-%m')
-        
+
         # Determine the default index: current month if exists, else first month
         if current_month in sorted_months:
             default_index = sorted_months.index(current_month)
         else:
             default_index = 0  # Default to the first month if current month not found
-        
+
         # Create the selectbox with sorted options and default selection
         selected_month = st.selectbox(
-            label="",
+            label="Select Month",
             options=sorted_months,
             index=default_index,
             key="month_filter_pie_col1"
         )
-        
+
         # Properly filter data based on the selected month
         filtered_data = merged_data[
-            merged_data['Activity Month'].astype(str) == selected_month
-        ]
+            (merged_data['BTC Month'].astype(str) == selected_month) |
+            (merged_data['Expiry Month'].astype(str) == selected_month)
+        ].copy()  # Use .copy() to avoid SettingWithCopyWarning
 
     # ----------------------------------------------------------------------------
     # Layout: Pie Charts Positioned Below the Selector
@@ -663,16 +687,22 @@ if uploaded_file is not None:
 
     # 2) Donut Chart: Closed/Expired Premium
     with pie_col2:
-        positive_premium_positions = filtered_data[
-            (filtered_data['Status'].isin(['Closed', 'Expired'])) & 
-            (filtered_data['Amount'] > 0)
+        # Filter transactions with Status 'Closed' or 'Expired'
+        closed_expired = filtered_data[filtered_data['Status'].isin(['Closed', 'Expired'])]
+
+        # Further filter to ensure Expiry Date is in the selected month
+        closed_expired = closed_expired[
+            pd.to_datetime(closed_expired['Expiry Date'], errors='coerce').dt.to_period('M') == selected_month
         ]
+
+        # Aggregate Amount by Instrument
         stock_positive_premium = (
-            positive_premium_positions
-            .groupby('Instrument')['Amount']
+            closed_expired
+            .groupby('Instrument')['Premium($)']
             .sum()
             .reset_index()
         )
+
         if not stock_positive_premium.empty:
             # Use the custom color palette
             color_sequence = custom_colors[:len(stock_positive_premium)]
@@ -680,7 +710,7 @@ if uploaded_file is not None:
             fig2 = px.pie(
                 stock_positive_premium,
                 names='Instrument',
-                values='Amount',
+                values='Premium($)',
                 title=f"Closed/Expired Premium<br>({selected_month})",
                 hole=0.3,  # This makes it a donut chart
                 color='Instrument',
@@ -705,8 +735,8 @@ if uploaded_file is not None:
 
     # 3) Additional Pie Chart: Calls vs Puts Distribution
     with pie_col3:
-        # Calculate the distribution of Calls vs Puts
-        calls_puts_distribution = merged_data['Option Type'].value_counts().reset_index()
+        # Calculate the distribution of Calls vs Puts within the filtered data
+        calls_puts_distribution = filtered_data['Option Type'].value_counts().reset_index()
         calls_puts_distribution.columns = ['Option Type', 'Count']
 
         # Optionally, exclude 'Other' if not relevant
@@ -753,7 +783,10 @@ if uploaded_file is not None:
         desired_columns = [
             'Activity Date',   # First column
             'Instrument',      # After Activity Date
-            'Expiry Date',     # After Instrument
+            'Option Type',     # After Instrument (Added)
+            'Quantity',        # After Option Type (Added)
+            'Strike Price',    # After Quantity (Added)
+            'Expiry Date',     # After Strike Price
             'STO($)', 'BTC($)',  # STO($) and BTC($) next to each other
             'STO Price', 'BTC Price',  # STO Price and BTC Price next to each other
             'STO Date', 'BTC Date'     # STO Date and BTC Date next to each other
@@ -817,7 +850,6 @@ if uploaded_file is not None:
             index=formatted_fridays.index(default_expiry) if default_expiry in formatted_fridays else 0,
             key="date_filter"
         )
-    
 
     # Apply filters
     filtered_transactions = sorted_transactions.copy()
@@ -834,7 +866,39 @@ if uploaded_file is not None:
             st.error("Selected Expiry Date format is incorrect.")
             st.stop()
 
+
+     # Rearrange columns: Place 'Option Type' after 'Activity Date' and 'Quantity' after 'Option Type'
+    desired_column_order = [
+        'Activity Date','Instrument', 'Option Type','Quantity','Strike Price', 'Expiry Date','STO($)', 'BTC($)', 'STO Price', 'BTC Price', 'STO Date', 'BTC Date', 'Status', 'Premium($)',   
+    ]
+
+    # Ensure only existing columns are rearranged
+    existing_columns = [col for col in desired_column_order if col in filtered_transactions.columns]
+    other_columns = [col for col in filtered_transactions.columns if col not in desired_column_order]
+    final_column_order = existing_columns + other_columns
+
+    # Apply the column rearrangement
+    filtered_transactions = filtered_transactions[final_column_order]
+
     # Check if filtered_transactions is empty
+    # Ensure 'Activity Month' is not included in the final table
+    if 'Activity Month' in filtered_transactions.columns:
+        filtered_transactions = filtered_transactions.drop(columns=['Activity Month'])
+
+    if 'Amount' in filtered_transactions.columns:
+        filtered_transactions = filtered_transactions.drop(columns=['Amount'])
+
+    if 'Activity Month' in filtered_transactions.columns:
+        filtered_transactions = filtered_transactions.drop(columns=['Activity Month'])
+
+    if 'BTC Month' in filtered_transactions.columns:
+        filtered_transactions = filtered_transactions.drop(columns=['BTC Month'])
+
+    if 'Expiry Month' in filtered_transactions.columns:
+        filtered_transactions = filtered_transactions.drop(columns=['Expiry Month'])
+
+
+
     if filtered_transactions.empty:
         st.write("No transactions were found for this date. Please choose another date!!")
     else:
