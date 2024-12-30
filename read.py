@@ -988,4 +988,9 @@ if uploaded_file is not None:
     )
 
 else:
-    st.info("Please upload a CSV or Excel file to get started.")
+    # Create two columns
+    col1, col2, col3 = st.columns([0.2, 0.2, 0.3])
+
+    # Display the info message in col2
+    with col2:
+        st.info("Please upload a CSV or Excel file to get started.")
