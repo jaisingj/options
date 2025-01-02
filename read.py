@@ -1,18 +1,18 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import plotly.express as px
 import re
 import io
 import os
 import base64
-import numpy as np  # Added NumPy import
+import numpy as np
 from PIL import Image
 
 # ----------------------------------------------------------------------------
 # Streamlit App Setup
 # ----------------------------------------------------------------------------
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Trade Analysis Dashboard")
 
 def image_to_base64(image):
     """
@@ -37,6 +37,22 @@ st.markdown(
         /* Adjusting the main content font size */
         .block-container {
             font-size: 16px;
+        }
+        /* Custom styling for download buttons */
+        .stDownloadButton > button {
+            background-color: #0A57C1 !important;
+            color: white !important;
+            border: none !important;
+            padding: 10px 20px !important;
+            border-radius: 8px !important;
+            font-size: 16px !important;
+            font-weight: bold !important;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s ease;
+            margin-top: 10px !important;
+        }
+        .stDownloadButton > button:hover {
+            background-color: #388E3C !important;
         }
     </style>
     """,
@@ -101,6 +117,8 @@ button_label = "Show Sidebar" if st.session_state.sidebar_hidden else "Hide Side
 if st.button(button_label):
     # Toggle sidebar visibility in session state
     st.session_state.sidebar_hidden = not st.session_state.sidebar_hidden
+    # Re-apply the sidebar visibility
+    apply_sidebar_visibility()
 
 # ----------------------------------------------------------------------------
 # Main Content
@@ -245,18 +263,23 @@ def calculate_premium(row):
     """
     return row['STO($)'] - abs(row['BTC($)'])
 
-def generate_fridays(start_year=2023, end_year=2025):
+def generate_unique_activity_months(merged_data):
     """
-    Generate a list of dates that are Fridays from January 2023 to December 2025.
+    Generate a sorted list of unique activity months in 'YYYY-MM' format.
+    Sorted in descending order.
     """
-    fridays = []
-    for year in range(start_year, end_year + 1):
-        # Start from Jan 1 of the year
-        date_range = pd.date_range(start=f'1/1/{year}', end=f'12/31/{year}', freq='W-FRI')
-        fridays.extend(date_range)
-    # Convert to date objects
-    fridays = [d.date() for d in fridays]
-    return fridays
+    unique_months = merged_data['Activity Month'].dropna().unique().tolist()
+    unique_months = sorted(unique_months, reverse=True)
+    return unique_months
+
+def generate_unique_expiry_months(merged_data):
+    """
+    Generate a sorted list of unique expiry months in 'YYYY-MM' format.
+    Sorted in descending order.
+    """
+    unique_months = merged_data['Expiry Month'].dropna().unique().tolist()
+    unique_months = sorted(unique_months, reverse=True)
+    return unique_months
 
 # ----------------------------------------------------------------------------
 # Display header images and title
@@ -276,7 +299,7 @@ with col2:
     except FileNotFoundError:
         st.warning("Header image 'coined.jpeg' not found. Please ensure the image is in the correct directory.")
 
-## ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # File Upload + Data Preprocessing
 # ----------------------------------------------------------------------------
 uploaded_file = st.sidebar.file_uploader("Upload your trades (CSV/Excel)", type=["csv", "xlsx"])
@@ -296,7 +319,7 @@ if uploaded_file is not None:
     with open(sanitized_path, 'wb') as f:
         f.write(uploaded_file.read())
 
-    st.write(f"File has been imported as: {new_filename}")
+    st.write(f"**File Imported:** {new_filename}")
 
     # Load the data based on file type
     if new_filename.endswith('.csv'):
@@ -327,7 +350,6 @@ if uploaded_file is not None:
         data['Option Type'] = data['Description'].apply(parse_option_type)
         data['Strike Price'] = data['Description'].apply(parse_strike_price)
         data['Expiry Date'] = data['Description'].apply(extract_expiry_date)
-        data['Expiry Date'] = pd.to_datetime(data['Expiry Date'], errors='coerce').dt.date
     else:
         st.error("The uploaded data does not contain a 'Description' column.")
         st.stop()
@@ -335,7 +357,7 @@ if uploaded_file is not None:
     # -------------------------------------------------------------------
     # Consolidate partial fills
     # -------------------------------------------------------------------
-    unique_cols = ["Instrument","Trans Code","Activity Date","Description"]
+    unique_cols = ["Instrument", "Trans Code", "Activity Date", "Description"]
     agg_dict = {
         "Amount": "sum",
         "Price": "mean",
@@ -350,7 +372,7 @@ if uploaded_file is not None:
         .agg(agg_dict)
     )
 
-    essential_cols = ['Activity Date','Instrument','Trans Code']
+    essential_cols = ['Activity Date', 'Instrument', 'Trans Code']
     data_consolidated = data_consolidated.dropna(subset=essential_cols)
 
     # -------------------------------------------------------------------
@@ -369,13 +391,13 @@ if uploaded_file is not None:
     }
     sto_grouped = (
         sto_data
-        .groupby(["Description","Instrument"], dropna=False)
+        .groupby(["Description", "Instrument"], dropna=False)
         .agg(sto_agg)
         .reset_index()
         .rename(columns={
-            "Amount":"STO($)",
-            "Price":"STO Price",
-            "Activity Date":"STO Date"
+            "Amount": "STO($)",
+            "Price": "STO Price",
+            "Activity Date": "STO Date"
         })
     )
 
@@ -386,13 +408,13 @@ if uploaded_file is not None:
     }
     btc_grouped = (
         btc_data
-        .groupby(["Description","Instrument"], dropna=False)
+        .groupby(["Description", "Instrument"], dropna=False)
         .agg(btc_agg)
         .reset_index()
         .rename(columns={
-            "Amount":"BTC($)",
-            "Price":"BTC Price",
-            "Activity Date":"BTC Date"
+            "Amount": "BTC($)",
+            "Price": "BTC Price",
+            "Activity Date": "BTC Date"
         })
     )
 
@@ -400,27 +422,32 @@ if uploaded_file is not None:
     merged_data = pd.merge(
         sto_grouped,
         btc_grouped,
-        on=["Description","Instrument"],
+        on=["Description", "Instrument"],
         how="outer"
     )
 
-    # Fill missing numeric
+    # Fill missing numeric values
     merged_data['STO($)'] = merged_data['STO($)'].fillna(0)
     merged_data['BTC($)'] = merged_data['BTC($)'].fillna(0)
     merged_data['STO Price'] = merged_data['STO Price'].fillna(0)
     merged_data['BTC Price'] = merged_data['BTC Price'].fillna(0)
 
-    # Combine the Activity Date
-    merged_data['Activity Date'] = merged_data[['STO Date','BTC Date']].apply(
-        lambda row: min([d for d in row if pd.notna(d)]) if any(pd.notna(d) for d in row) else None,
+    # Combine the Activity Date as the earliest date between STO Date and BTC Date
+    merged_data['Activity Date'] = merged_data[['STO Date', 'BTC Date']].apply(
+        lambda row: min([d for d in row if pd.notna(d)]) if any(pd.notna(d) for d in row) else pd.NaT,
         axis=1
     )
 
+    # Ensure 'Activity Date' is in datetime format
+    merged_data['Activity Date'] = pd.to_datetime(merged_data['Activity Date'], errors='coerce')
+
     # Premium($), Tag, etc.
     merged_data['Amount'] = merged_data['STO($)'] + merged_data['BTC($)']
-    merged_data['Activity Month'] = pd.to_datetime(
-        merged_data['Activity Date'], errors='coerce'
-    ).dt.to_period('M')
+    merged_data['Activity Month'] = merged_data['Activity Date'].dt.strftime('%Y-%m')  # Now works correctly
+
+    # Create 'Expiry Month' as 'YYYY-MM' string
+    merged_data['Expiry Month'] = merged_data['Expiry Date'].dt.strftime('%Y-%m')
+
     merged_data['Quantity'] = merged_data.apply(compute_quantity, axis=1).round(0).astype(int)
     merged_data['Premium($)'] = merged_data.apply(calculate_premium, axis=1)
 
@@ -444,11 +471,19 @@ if uploaded_file is not None:
     )
 
     # ----------------------------------------------------------------------------
-    # Parse 'BTC Month' and 'Expiry Month' for enhanced filtering
+    # Generate Unique Months for Filtering
     # ----------------------------------------------------------------------------
-    # Extract month in 'YYYY-MM' format from 'BTC Date' and 'Expiry Date'
-    merged_data['BTC Month'] = pd.to_datetime(merged_data['BTC Date'], errors='coerce').dt.to_period('M')
-    merged_data['Expiry Month'] = pd.to_datetime(merged_data['Expiry Date'], errors='coerce').dt.to_period('M')
+    unique_expiry_months = generate_unique_expiry_months(merged_data)
+    unique_activity_months = generate_unique_activity_months(merged_data)
+
+    # ----------------------------------------------------------------------------
+    # Debugging: Verify 'Activity Month' and 'Expiry Month' Formats
+    # ----------------------------------------------------------------------------
+    #st.write("### Unique Activity Months in Data")
+    #st.write(unique_activity_months)
+
+    #st.write("### Unique Expiry Months in Data")
+    #st.write(unique_expiry_months)
 
     # ----------------------------------------------------------------------------
     # Layout: Tax Bracket Slider
@@ -458,7 +493,7 @@ if uploaded_file is not None:
         st.subheader("Tax Bracket")
         tax_rate = st.select_slider(
             "Select Tax Rate to Deduct from Net Premium",
-            options=[0,0.10,0.12,0.22,0.24,0.32,0.35,0.37],
+            options=[0, 0.10, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37],
             format_func=lambda x: f"{int(x*100)}%"
         )
 
@@ -484,7 +519,7 @@ if uploaded_file is not None:
     # ----------------------------------------------------------------------------
     # Layout: Summary Section and Bar Chart
     # ----------------------------------------------------------------------------
-    summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.1, 0.5])
+    summary_col1, summary_col2, summary_col3 = st.columns([0.3, 0.05, 0.5])  # Adjusted column ratios
     with summary_col1:
         st.subheader("Summary")
         # Style monthly summary
@@ -549,7 +584,6 @@ if uploaded_file is not None:
                 x='Activity Month',
                 y=['Net Premium', 'Net After Tax'],
                 labels={'value': 'Net Premium ($)', 'Activity Month': 'Month'},
-                #title='Monthly Net Premium',
                 barmode='group',
                 text_auto='.2s',
                 height=600,
@@ -562,7 +596,6 @@ if uploaded_file is not None:
         # Update layout for Arial font and increase title font size
         fig.update_layout(
             font=dict(family="Arial", size=12),
-            #title=dict(font=dict(family="Arial", size=20)),  # Increased font size
             legend=dict(font=dict(family="Arial", size=12)),
             xaxis_tickangle=-45
         )
@@ -579,56 +612,95 @@ if uploaded_file is not None:
         plot_monthly_premium(monthly_summary)
 
     # ----------------------------------------------------------------------------
-    # Layout: Three Columns with Selector in the Middle
+    # *** Moved Selectors to a Single Row Above Pie Charts ***
     # ----------------------------------------------------------------------------
-    selector_colA, selector_colB, selector_colC = st.columns([1, 2, 1])
+    # Create a single row with three selectors: Select Activity Month, Select Expiry Month, Select Instrument
+    selector_colA, selector_colB, selector_colC = st.columns([0.07, 0.07, 0.07])
 
-    with selector_colB:
-        # Extract unique months from both 'BTC Month' and 'Expiry Month' excluding 'Grand Total'
-        unique_btc_months = merged_data['BTC Month'].dropna().astype(str).unique()
-        unique_expiry_months = merged_data['Expiry Month'].dropna().astype(str).unique()
-        all_unique_months = pd.unique(np.concatenate((unique_btc_months, unique_expiry_months)))
-        all_unique_months = [month for month in all_unique_months if month != 'nan']
+    with selector_colA:
+        # Select Activity Month
+        # Extract unique months from 'Activity Month'
+        unique_activity_months = unique_activity_months  # Already generated earlier
 
-        # Convert month strings to datetime objects for proper sorting
-        months_datetime = pd.to_datetime(all_unique_months, format='%Y-%m', errors='coerce')
-
-        # Remove any NaT values resulting from incorrect formats
-        months_datetime = months_datetime.dropna()
-
-        # Sort the months in descending order (most recent first)
-        sorted_months_datetime = months_datetime.sort_values(ascending=False)
-
-        # Convert back to string format 'YYYY-MM'
-        sorted_months = sorted_months_datetime.strftime('%Y-%m').tolist()
-
-        # Get the current month in 'YYYY-MM' format
-        current_month = date.today().strftime('%Y-%m')
-
-        # Determine the default index: current month if exists, else first month
-        if current_month in sorted_months:
-            default_index = sorted_months.index(current_month)
-        else:
-            default_index = 0  # Default to the first month if current month not found
-
-        # Create the selectbox with sorted options and default selection
-        selected_month = st.selectbox(
-            label="Select Month",
-            options=sorted_months,
-            index=default_index,
-            key="month_filter_pie_col1"
+        selected_activity_month = st.selectbox(
+            label="Select Activity Month",
+            options=["All"] + unique_activity_months,
+            index=0,
+            key="activity_month_filter"
         )
 
-        # Properly filter data based on the selected month
-        filtered_data = merged_data[
-            (merged_data['BTC Month'].astype(str) == selected_month) |
-            (merged_data['Expiry Month'].astype(str) == selected_month)
-        ].copy()  # Use .copy() to avoid SettingWithCopyWarning
+    with selector_colB:
+        # Select Expiry Month
+        # Extract unique months from 'Expiry Month'
+        unique_expiry_months = unique_expiry_months  # Already generated earlier
+
+        selected_expiry_month = st.selectbox(
+            label="Select Expiry Month",
+            options=["All"] + unique_expiry_months,
+            index=0,
+            key="expiry_month_filter"
+        )
+
+    with selector_colC:
+        # Select Instrument
+        instruments = sorted(merged_data['Instrument'].unique().tolist())
+        instrument_selection = st.selectbox(
+            "Select Instrument",
+            options=["All"] + instruments,
+            index=0,
+            key="instrument_filter_combined"
+        )
 
     # ----------------------------------------------------------------------------
-    # Layout: Pie Charts Positioned Below the Selector
+    # Apply Combined Filters to the Data
     # ----------------------------------------------------------------------------
-    # Create three columns for the pie charts
+    # Start with the merged data
+    filtered_data_combined = merged_data.copy()
+
+    # Apply Select Activity Month filter using datetime comparison
+    if selected_activity_month != "All":
+        try:
+            # Split the selected month into year and month
+            year, month = map(int, selected_activity_month.split('-'))
+            
+            # Apply the filter based on year and month
+            filtered_data_combined = filtered_data_combined[
+                (filtered_data_combined['Activity Date'].dt.year == year) &
+                (filtered_data_combined['Activity Date'].dt.month == month)
+            ]
+        except Exception as e:
+            st.error(f"Error filtering by Activity Month: {e}")
+
+    # Apply Select Expiry Month filter using datetime comparison
+    if selected_expiry_month != "All":
+        try:
+            # Split the selected expiry month into year and month
+            exp_year, exp_month = map(int, selected_expiry_month.split('-'))
+            
+            # Apply the filter based on expiry year and month
+            filtered_data_combined = filtered_data_combined[
+                (filtered_data_combined['Expiry Date'].dt.year == exp_year) &
+                (filtered_data_combined['Expiry Date'].dt.month == exp_month)
+            ]
+        except Exception as e:
+            st.error(f"Error filtering by Expiry Month: {e}")
+
+    # Apply Select Instrument filter
+    if instrument_selection != "All":
+        filtered_data_combined = filtered_data_combined[filtered_data_combined['Instrument'] == instrument_selection]
+
+    # ----------------------------------------------------------------------------
+    # Debugging: Verify the Number of Rows After Filtering
+    # ----------------------------------------------------------------------------
+    #st.write("### Number of Transactions After Filtering:", filtered_data_combined.shape[0])
+
+    # Optionally, display a preview of the filtered data
+    #st.write("### Preview of Filtered Transactions")
+    #st.write(filtered_data_combined.head())
+
+    # ----------------------------------------------------------------------------
+    # Layout: Pie Charts Positioned Below the Selectors
+    # ----------------------------------------------------------------------------
     pie_col1, pie_col2, pie_col3 = st.columns(3)
 
     # Define a custom color palette with less orange and yellow, more blue tones
@@ -638,14 +710,14 @@ if uploaded_file is not None:
         '#A80000',  # Cyan
         '#107C10',  # Dodger Blue
         '#094782',  # Steel Blue
-        '#F17925',  # Light Sky Blue
         '#6495ED',  # Cornflower Blue
         '#5F9EA0',  # Cadet Blue
+        '#2E8B57',  # Sea Green
     ]
 
     # 1) Donut Chart: Open Positions by Quantity
     with pie_col1:
-        open_positions = filtered_data[filtered_data['Status'] == 'Open']
+        open_positions = filtered_data_combined[filtered_data_combined['Status'] == 'Open']
         total_open_qty = open_positions['Quantity'].sum()
         if not open_positions.empty and total_open_qty > 0:
             stock_distribution = (
@@ -659,11 +731,19 @@ if uploaded_file is not None:
             # Use the custom color palette
             color_sequence = custom_colors[:len(stock_distribution)]
 
+            # Update the title based on selected months
+            title_parts = []
+            if selected_activity_month != "All":
+                title_parts.append(f"Activity Month: {selected_activity_month}")
+            if selected_expiry_month != "All":
+                title_parts.append(f"Expiry Month: {selected_expiry_month}")
+            title_month = " & ".join(title_parts) if title_parts else "All Activity and Expiry Months"
+
             fig1 = px.pie(
                 stock_distribution,
                 names='Instrument',
                 values='Quantity',
-                title=f"Open Positions<br>({selected_month})",
+                title=f"Open Positions<br>({title_month})",
                 hole=0.3,  # This makes it a donut chart
                 color='Instrument',
                 color_discrete_sequence=color_sequence
@@ -683,19 +763,14 @@ if uploaded_file is not None:
 
             st.plotly_chart(fig1, use_container_width=True)
         else:
-            st.write("No open positions for the selected month.")
+            st.write("No open positions for the selected filters.")
 
     # 2) Donut Chart: Closed/Expired Premium
     with pie_col2:
         # Filter transactions with Status 'Closed' or 'Expired'
-        closed_expired = filtered_data[filtered_data['Status'].isin(['Closed', 'Expired'])]
+        closed_expired = filtered_data_combined[filtered_data_combined['Status'].isin(['Closed', 'Expired'])]
 
-        # Further filter to ensure Expiry Date is in the selected month
-        closed_expired = closed_expired[
-            pd.to_datetime(closed_expired['Expiry Date'], errors='coerce').dt.to_period('M') == selected_month
-        ]
-
-        # Aggregate Amount by Instrument
+        # Aggregate Premium by Instrument
         stock_positive_premium = (
             closed_expired
             .groupby('Instrument')['Premium($)']
@@ -707,11 +782,19 @@ if uploaded_file is not None:
             # Use the custom color palette
             color_sequence = custom_colors[:len(stock_positive_premium)]
 
+            # Update the title based on selected months
+            title_parts = []
+            if selected_activity_month != "All":
+                title_parts.append(f"Activity Month: {selected_activity_month}")
+            if selected_expiry_month != "All":
+                title_parts.append(f"Expiry Month: {selected_expiry_month}")
+            title_month = " & ".join(title_parts) if title_parts else "All Activity and Expiry Months"
+
             fig2 = px.pie(
                 stock_positive_premium,
                 names='Instrument',
                 values='Premium($)',
-                title=f"Closed/Expired Premium<br>({selected_month})",
+                title=f"Closed/Expired Premium<br>({title_month})",
                 hole=0.3,  # This makes it a donut chart
                 color='Instrument',
                 color_discrete_sequence=color_sequence
@@ -731,12 +814,12 @@ if uploaded_file is not None:
 
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.write("No closed/expired transactions with positive premium for the selected month.")
+            st.write("No closed/expired transactions with positive premium for the selected filters.")
 
     # 3) Additional Pie Chart: Calls vs Puts Distribution
     with pie_col3:
         # Calculate the distribution of Calls vs Puts within the filtered data
-        calls_puts_distribution = filtered_data['Option Type'].value_counts().reset_index()
+        calls_puts_distribution = filtered_data_combined['Option Type'].value_counts().reset_index()
         calls_puts_distribution.columns = ['Option Type', 'Count']
 
         # Optionally, exclude 'Other' if not relevant
@@ -745,250 +828,154 @@ if uploaded_file is not None:
 
         # Calculate percentages
         total_options = calls_puts_distribution['Count'].sum()
-        calls_puts_distribution['Percentage'] = (calls_puts_distribution['Count'] / total_options) * 100
+        if total_options > 0:
+            calls_puts_distribution['Percentage'] = (calls_puts_distribution['Count'] / total_options) * 100
 
-        # Use the custom color palette
-        color_sequence_cp = custom_colors[:len(calls_puts_distribution)]
+            # Use the custom color palette
+            color_sequence_cp = custom_colors[:len(calls_puts_distribution)]
 
-        fig3 = px.pie(
-            calls_puts_distribution,
-            names='Option Type',
-            values='Count',
-            title=f"Calls vs Puts Distribution<br>({selected_month})",
-            hole=0.3,  # Makes it a donut chart
-            color='Option Type',
-            color_discrete_sequence=color_sequence_cp
-        )
+            # Update the title based on selected months
+            title_parts = []
+            if selected_activity_month != "All":
+                title_parts.append(f"Activity Month: {selected_activity_month}")
+            if selected_expiry_month != "All":
+                title_parts.append(f"Expiry Month: {selected_expiry_month}")
+            title_month = " & ".join(title_parts) if title_parts else "All Activity and Expiry Months"
 
-        fig3.update_traces(
-            textinfo='percent+label',
-            textfont=dict(size=14, family="Arial")
-        )
+            fig3 = px.pie(
+                calls_puts_distribution,
+                names='Option Type',
+                values='Count',
+                title=f"Calls vs Puts Distribution<br>({title_month})",
+                hole=0.3,  # Makes it a donut chart
+                color='Option Type',
+                color_discrete_sequence=color_sequence_cp
+            )
 
-        fig3.update_layout(
-            title=dict(font=dict(family="Arial", size=18)),  # Increased font size
-            legend_title_text='Option Type',
-            legend=dict(font=dict(family="Arial", size=12), orientation='h', x=0.5, xanchor='center', y=-0.1),
-            margin=dict(l=10, r=10, t=60, b=40)  # Adjusted top margin for larger title
-        )
+            fig3.update_traces(
+                textinfo='percent+label',
+                textfont=dict(size=14, family="Arial")
+            )
 
-        st.plotly_chart(fig3, use_container_width=True)
+            fig3.update_layout(
+                title=dict(font=dict(family="Arial", size=18)),  # Increased font size
+                legend_title_text='Option Type',
+                legend=dict(font=dict(family="Arial", size=12), orientation='h', x=0.5, xanchor='center', y=-0.1),
+                margin=dict(l=10, r=10, t=60, b=40)  # Adjusted top margin for larger title
+            )
+
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.write("No option types available for the selected filters.")
 
     # ----------------------------------------------------------------------------
-    # Detailed Transactions - sort descending by Activity Date
-    # Omit the 'Description' column from final table
+    # Detailed Transactions - sort descending order by Activity Date
+    # Show specified columns in the desired order and reflect Expiry Month selection
     # ----------------------------------------------------------------------------
     if 'Activity Month' in merged_data.columns:
-        # Rearrange columns as per user request
+        # Define the desired column order as per user request
         desired_columns = [
-            'Activity Date',   # First column
-            'Instrument',      # After Activity Date
-            'Option Type',     # After Instrument (Added)
-            'Quantity',        # After Option Type (Added)
-            'Strike Price',    # After Quantity (Added)
-            'Expiry Date',     # After Strike Price
-            'STO($)', 'BTC($)',  # STO($) and BTC($) next to each other
-            'STO Price', 'BTC Price',  # STO Price and BTC Price next to each other
-            'STO Date', 'BTC Date'     # STO Date and BTC Date next to each other
+            'Activity Date',
+            'Instrument',
+            'Option Type',
+            'Quantity',
+            'Strike Price',
+            'Expiry Date',
+            'STO($)',
+            'BTC($)',
+            'STO Price',
+            'BTC Price',
+            'STO Date',
+            'BTC Date',
+            'Status',
+            'Premium($)'
         ]
 
-        # Add any other columns that are not specified
-        other_columns = [col for col in merged_data.columns if col not in desired_columns]
+        # Filter only the desired columns
+        existing_desired_columns = [col for col in desired_columns if col in filtered_data_combined.columns]
+        filtered_transactions = filtered_data_combined[existing_desired_columns].copy()
 
-        # Ensure the desired columns exist in merged_data
-        existing_desired_columns = [col for col in desired_columns if col in merged_data.columns]
+        # Ensure date columns are datetime objects
+        date_columns = ['Activity Date', 'STO Date', 'BTC Date', 'Expiry Date']
+        for col in date_columns:
+            if col in filtered_transactions.columns:
+                filtered_transactions[col] = pd.to_datetime(filtered_transactions[col], errors='coerce')
 
-        # Rearrange the columns
-        merged_data = merged_data[existing_desired_columns + other_columns]
+        # Sort the filtered transactions by 'Activity Date' descendingly
+        filtered_transactions = filtered_transactions.sort_values(by='Activity Date', ascending=False)
 
-    merged_data['Activity Date'] = pd.to_datetime(merged_data['Activity Date'], errors='coerce')
-    sorted_transactions = merged_data.sort_values(by='Activity Date', ascending=False)
-
-    # Convert STO/BTC date
-    for dc in ['STO Date','BTC Date']:
-        if dc in sorted_transactions.columns:
-            sorted_transactions[dc] = pd.to_datetime(sorted_transactions[dc], errors='coerce')
-
-    # ----------------------------------------------------------------------------
-    # Layout: Filters Above Detailed Transactions Table
-    # ----------------------------------------------------------------------------
-    # Generate list of Fridays
-    fridays = generate_fridays(start_year=2023, end_year=2025)
-
-    # Add "All" to the list of fridays
-    formatted_fridays = [d.strftime('%Y-%m-%d') for d in fridays]
-    formatted_fridays.insert(0, "All")
-
-    # Determine if today is Friday
-    today = date.today()
-    if today.weekday() == 4:  # 4 represents Friday
-        today_str = today.strftime('%Y-%m-%d')
-        if today_str in formatted_fridays:
-            default_expiry = today_str
+        # Check if filtered_transactions is empty
+        if filtered_transactions.empty:
+            st.write("### Detailed Transactions")
+            st.write("No transactions were found for the selected filters. Please adjust your selections.")
         else:
-            default_expiry = "All"
-    else:
-        default_expiry = "All"
+            # Final table with specified column order and sorted descendingly by Activity Date
+            styled_transactions = (
+                filtered_transactions
+                .style
+                .format({
+                    "STO($)": "${:,.2f}",
+                    "BTC($)": "${:,.2f}",
+                    "Premium($)": "${:,.2f}",
+                    "STO Price": "${:,.2f}",
+                    "BTC Price": "${:,.2f}",
+                    "Strike Price": "${:,.2f}",
+                    "Activity Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else '',
+                    "STO Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else '',
+                    "BTC Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else '',
+                    "Expiry Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else ''
+                })
+                .set_properties(**{'font-size': '15px', 'text-align': 'center'})
+                .set_table_styles([
+                    {
+                        'selector':'thead th',
+                        'props':[
+                            ('background-color','aliceblue'),
+                            ('color','black'),
+                            ('font-weight','bold'),
+                            ('text-align','center'),
+                            ('border','1px solid #CCCCCC'),
+                            ('padding','10px')
+                        ]
+                    },
+                    {
+                        'selector':'tbody td',
+                        'props':[
+                            ('padding','10px'),
+                            ('border','1px solid #CCCCCC')
+                        ]
+                    },
+                    {
+                        'selector':'table',
+                        'props':[
+                            ('width','100%'),
+                            ('margin','0 auto'),
+                            ('border-collapse','collapse')
+                        ]
+                    }
+                ])
+            )
 
-    # Create three columns for filters
-    filter_col1, filter_col2, filter_col3 = st.columns([1, 2, 2])
-    with filter_col1:
-        st.subheader("Filters")
-    with filter_col2:
-        instruments = sorted_transactions['Instrument'].unique().tolist()
-        instruments.sort()
-        instrument_selection = st.selectbox(
-            "Select Instrument",
-            options=["All"] + instruments,
-            index=0,
-            key="instrument_filter"
-        )
-    with filter_col3:
-        selected_friday = st.selectbox(
-            "Select Expiry Date",
-            options=formatted_fridays,
-            index=formatted_fridays.index(default_expiry) if default_expiry in formatted_fridays else 0,
-            key="date_filter"
-        )
+            st.write("### Detailed Transactions")
+            st.write(styled_transactions.to_html(), unsafe_allow_html=True)
 
-    # Apply filters
-    filtered_transactions = sorted_transactions.copy()
-
-    if instrument_selection != "All":
-        filtered_transactions = filtered_transactions[filtered_transactions['Instrument'] == instrument_selection]
-
-    if selected_friday != "All":
-        # Convert selected_friday to date object for comparison
-        try:
-            selected_friday_date = datetime.strptime(selected_friday, '%Y-%m-%d').date()
-            filtered_transactions = filtered_transactions[filtered_transactions['Expiry Date'] == selected_friday_date]
-        except ValueError:
-            st.error("Selected Expiry Date format is incorrect.")
-            st.stop()
-
-
-     # Rearrange columns: Place 'Option Type' after 'Activity Date' and 'Quantity' after 'Option Type'
-    desired_column_order = [
-        'Activity Date','Instrument', 'Option Type','Quantity','Strike Price', 'Expiry Date','STO($)', 'BTC($)', 'STO Price', 'BTC Price', 'STO Date', 'BTC Date', 'Status', 'Premium($)',   
-    ]
-
-    # Ensure only existing columns are rearranged
-    existing_columns = [col for col in desired_column_order if col in filtered_transactions.columns]
-    other_columns = [col for col in filtered_transactions.columns if col not in desired_column_order]
-    final_column_order = existing_columns + other_columns
-
-    # Apply the column rearrangement
-    filtered_transactions = filtered_transactions[final_column_order]
-
-    # Check if filtered_transactions is empty
-    # Ensure 'Activity Month' is not included in the final table
-    if 'Activity Month' in filtered_transactions.columns:
-        filtered_transactions = filtered_transactions.drop(columns=['Activity Month'])
-
-    if 'Amount' in filtered_transactions.columns:
-        filtered_transactions = filtered_transactions.drop(columns=['Amount'])
-
-    if 'Activity Month' in filtered_transactions.columns:
-        filtered_transactions = filtered_transactions.drop(columns=['Activity Month'])
-
-    if 'BTC Month' in filtered_transactions.columns:
-        filtered_transactions = filtered_transactions.drop(columns=['BTC Month'])
-
-    if 'Expiry Month' in filtered_transactions.columns:
-        filtered_transactions = filtered_transactions.drop(columns=['Expiry Month'])
-
-
-
-    if filtered_transactions.empty:
-        st.write("No transactions were found for this date. Please choose another date!!")
-    else:
-        # Final table
-        styled_transactions = (
-            filtered_transactions
-            .style
-            .format({
-                "STO($)": "${:,.2f}",
-                "BTC($)": "${:,.2f}",
-                "Premium($)": "${:,.2f}",
-                "STO Price": "${:,.2f}",
-                "BTC Price": "${:,.2f}",
-                "Strike Price": "${:,.2f}",
-                "Amount": "${:,.2f}",  # Added formatting for 'Amount'
-                "Activity Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else '',
-                "STO Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else '',
-                "BTC Date": lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else ''
-            })
-            .set_properties(**{'font-size': '15px', 'text-align': 'center'})
-            .set_table_styles([
-                {
-                    'selector':'thead th',
-                    'props':[
-                        ('background-color','aliceblue'),
-                        ('color','black'),
-                        ('font-weight','bold'),
-                        ('text-align','center'),
-                        ('border','1px solid #CCCCCC'),
-                        ('padding','10px')
-                    ]
-                },
-                {
-                    'selector':'tbody td',
-                    'props':[
-                        ('padding','10px'),
-                        ('border','1px solid #CCCCCC')
-                    ]
-                },
-                {
-                    'selector':'table',
-                    'props':[
-                        ('width','100%'),
-                        ('margin','0 auto'),
-                        ('border-collapse','collapse')
-                    ]
-                }
-            ])
-        )
-
-        st.write("### Detailed Transactions")
-        st.write(styled_transactions.to_html(), unsafe_allow_html=True)
-
-        # Download
-        detailed_csv = filtered_transactions.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Detailed Transactions",
-            data=detailed_csv,
-            file_name="detailed_transactions.csv",
-            mime="text/csv"
-        )
+            # Download
+            detailed_csv = filtered_transactions.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Detailed Transactions",
+                data=detailed_csv,
+                file_name="detailed_transactions.csv",
+                mime="text/csv"
+            )
 
     # ----------------------------------------------------------------------------
-    # Custom CSS for the download button
+    # Additional Layout: Display Monthly Summary and Charts at the Top
+    # (Optional: Move summary and charts above the filters for better UX)
     # ----------------------------------------------------------------------------
-    st.markdown(
-        """
-        <style>
-        .stDownloadButton > button {
-            background-color: #0A57C1 !important;
-            color: white !important;
-            border: none !important;
-            padding: 10px 20px !important;
-            border-radius: 8px !important;
-            font-size: 16px !important;
-            font-weight: bold !important;
-            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
-            transition: background-color 0.3s ease;
-            margin-top: 10px !important;
-        }
-        .stDownloadButton > button:hover {
-            background-color: #388E3C !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    # (This section can be adjusted based on user preference)
 
 else:
-    # Create two columns
+    # Create three columns
     col1, col2, col3 = st.columns([0.2, 0.2, 0.3])
 
     # Display the info message in col2
